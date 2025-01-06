@@ -1,0 +1,86 @@
+# https://docs.cdp.coinbase.com/advanced-trade/reference/retailbrokerageapi_postorder
+
+
+**Mandatory Parameters:**
+- `client_order_id`
+- `product_id`
+- `side`
+- `order_configuration`
+
+**Optional Parameters:**
+- `leverage`
+- `margin_type`
+
+---
+
+**Order Configuration Options:**
+
+**market_market_ioc**
+- `quote_size`
+- `base_size`
+
+**sor_limit_ioc**
+- `quote_size`
+- `base_size`
+- `limit_price`
+
+**limit_limit_gtc**
+- `quote_size`
+- `base_size`
+- `limit_price`
+- `post_only`
+
+**limit_limit_gtd**
+- `quote_size`
+- `base_size`
+- `limit_price`
+- `end_time`
+- `post_only`
+
+**limit_limit_fok**
+- `quote_size`
+- `base_size`
+- `limit_price`
+
+**stop_limit_stop_limit_gtc**
+- `base_size`
+- `limit_price`
+- `stop_price`
+- `stop_direction`
+
+**stop_limit_stop_limit_gtd**
+- `base_size`
+- `limit_price`
+- `stop_price`
+- `end_time`
+- `stop_direction`
+
+**trigger_bracket_gtc**
+- `base_size`
+- `limit_price`
+- `stop_trigger_price`
+
+**trigger_bracket_gtd**
+- `base_size`
+- `limit_price`
+- `stop_trigger_price`
+- `end_time` 
+
+---
+
+**Parameter Explanations:**
+- `client_order_id`: A unique identifier for the order.
+- `product_id`: The trading pair (e.g., `BTC-USD`).
+- `side`: Specifies the action: `BUY` or `SELL`.
+- `leverage`: Specifies the leverage for the order (e.g., `10`).
+- `margin_type`: Specifies the margin type: `CROSS` or `ISOLATED`.
+- `quote_size`: Amount in the quote asset (e.g., USD in `BTC-USD`).
+- `base_size`: Amount in the base asset (e.g., BTC in `BTC-USD`).
+- `limit_price`: The price at which the limit order is executed.
+- `post_only`: Ensures the order is added to the order book only and does not execute immediately (`true` or `false`).
+- `stop_price`: The price that triggers a stop-limit order.
+- `stop_direction`: Direction of the stop trigger:
+  - `STOP_DIRECTION_STOP_UP`: Trigger if the price increases.
+  - `STOP_DIRECTION_STOP_DOWN`: Trigger if the price decreases.
+- `end_time`: Expiration time for GTD orders, in RFC3339 Timestamp format (e.g., `"2025-01-05T12:34:56Z"`).
+- `stop_trigger_price`: The price that triggers a bracket order's stop-loss.

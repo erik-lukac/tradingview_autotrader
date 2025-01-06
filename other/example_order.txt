@@ -1,0 +1,16 @@
+>>> from coinbase.rest import RESTClient
+>>> client = RESTClient(key_file="perpetuals_trade_cdp_api_key.json")
+>>> client.get_api_key_permissions()
+{'can_view': True, 'can_trade': True, 'can_transfer': False, 'portfolio_uuid': '01939152-3367-7138-a24c-8ed09a9d89f0', 'portfolio_type': 'INTX'}
+>>> response = client.create_order()
+
+>>> client.create_order("7", "BTC-PERP-INTX", "BUY", {"market_market_ioc": {"base_size": "0.001"}})
+{'success': True, 'success_response': {'order_id': '5cb95c14-2d8e-41e5-bce4-ce366a6d5fcd', 'product_id': 'BTC-PERP-INTX', 'side': 'BUY', 'client_order_id': '7', 'attached_order_id': ''}, 'order_configuration': {'market_market_ioc': {'base_size': '0.001', 'rfq_enabled': False, 'rfq_disabled': False}}}
+
+>>> print("\n".join([f"{order['order_id']}, {order['product_id']}, {order['side']}, {order['status']}, {order['filled_size']}, {order['average_filled_pri\
+ce']}, {order['created_time']}" for order in sorted(client.list_orders()["orders"], key=lambda x: x["created_time"], reverse=True)[:5]]))
+5cb95c14-2d8e-41e5-bce4-ce366a6d5fcd, BTC-PERP-INTX, BUY, FILLED, 0.001, 97435.9, 2025-01-05T14:25:00.618846Z
+46e643e7-2c6c-404d-9923-5de147a67e26, BTC-PERP-INTX, SELL, FILLED, 0.0002, 97687.8, 2025-01-05T14:10:00.428811Z
+008813f6-e4fc-4c01-b41e-3e3d55cc68ae, BTC-PERP-INTX, BUY, FILLED, 0.0002, 97798.2, 2025-01-05T13:49:25.119305Z
+a185e339-7317-48f0-aae9-9acbae7a8bde, ADA-PERP-INTX, BUY, FILLED, 183, 1.0932, 2025-01-03T20:02:26.737671Z
+94d18876-6079-4f0e-a06a-d04e98c6c657, ADA-PERP-INTX, SELL, FILLED, 183, 1.0959, 2025-01-03T19:31:50.995375Z

@@ -1,0 +1,18 @@
+services:
+  webhook:
+    build:
+      context: .
+    ports:
+      #- "80:5002" # Map port 5002 on the host to port 5002 in the container
+      - "5002" #Internal port to docker only
+    restart: unless-stopped
+  
+  nginx:
+    image: nginx:latest
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "80:80" # Expose Nginx on port 80
+    depends_on:
+      - webhook
+    restart: unless-stopped
