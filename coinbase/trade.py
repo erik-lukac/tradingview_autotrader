@@ -3,26 +3,45 @@
 trade.py
 
 Example usage:
-python trade.py SELL BTC-USD 0.001
 
-# Market Orders
-python trade.py --side BUY --product BTC-USD --amount 0.01 --option market_market_ioc
-python trade.py --side SELL --product ETH-USD --amount 0.02 --option market_market_ioc
+# Default is a market order (Market IOC by default). 
+# If you do NOT provide --option, it will place a "market" order:
+python trade.py --side BUY --product BTC-USD --amount 0.01
+python trade.py --side SELL --product ETH-USD --amount 0.02
 
-# Limit Orders
-python trade.py --side BUY --product BTC-USD --amount 0.01 --option limit_limit_gtc --limit-price 18000
-python trade.py --side SELL --product ETH-USD --amount 0.05 --option limit_limit_gtc --limit-price 2200
-python trade.py --side BUY --product BTC-USD --amount 0.01 --option limit_limit_gtd --limit-price 18000 --end-time 2025-01-06T23:59:59Z
-python trade.py --side SELL --product BTC-USD --amount 0.02 --option limit_limit_fok --limit-price 18500
+# Provide explicit --option for different order types:
 
-# Stop-Limit Orders
-python trade.py --side BUY --product BTC-USD --amount 0.01 --option stop_limit_stop_limit_gtc --limit-price 25000 --stop-price 24000 --stop-direction STOP_DIRECTION_STOP_UP
-python trade.py --side SELL --product ETH-USD --amount 0.05 --option stop_limit_stop_limit_gtc --limit-price 1800 --stop-price 1900 --stop-direction STOP_DIRECTION_STOP_DOWN
-python trade.py --side BUY --product BTC-USD --amount 0.01 --option stop_limit_stop_limit_gtd --limit-price 25000 --stop-price 24000 --stop-direction STOP_DIRECTION_STOP_UP --end-time 2025-01-06T12:00:00Z
+# Market IOC
+python trade.py --side BUY --product BTC-USD --amount 0.01 --option market_ioc
+python trade.py --side SELL --product ETH-USD --amount 0.02 --option market_ioc
 
-# Trigger Bracket Orders
-python trade.py --side BUY --product BTC-USD --amount 0.05 --option trigger_bracket_gtc --limit-price 35000 --stop-trigger-price 34000
-python trade.py --side SELL --product ETH-USD --amount 0.03 --option trigger_bracket_gtd --limit-price 36000 --stop-trigger-price 35500 --end-time 2025-01-07T18:00:00Z
+# Limit IOC
+python trade.py --side BUY --product BTC-USD --amount 0.01 --option limit_ioc --limit-price 18000
+
+# Limit GTC (two ways):
+python trade.py --side SELL --product ETH-USD --amount 0.05 --option limit_gtc --limit-price 2200
+# OR with convenience flag:
+python trade.py --side SELL --product ETH-PERP-INTX --amount 0.01 --limit-gtc --limit-price 3650
+
+# Limit GTD (requires --end-time)
+python trade.py --side BUY --product BTC-USD --amount 0.01 --option limit_gtd --limit-price 18000 --end-time 2025-01-06T23:59:59Z
+
+# Limit FOK (two ways):
+python trade.py --side SELL --product BTC-USD --amount 0.02 --option limit_fok --limit-price 18500
+# OR with convenience flag:
+python trade.py --side SELL --product BTC-USD --amount 0.02 --limit-fok --limit-price 18500
+
+# Stop-Limit GTC
+python trade.py --side BUY --product BTC-USD --amount 0.01 --option stop_limit_gtc --limit-price 25000 --stop-price 24000 --stop-direction STOP_DIRECTION_STOP_UP
+
+# Stop-Limit GTD (requires --end-time)
+python trade.py --side SELL --product ETH-USD --amount 0.05 --option stop_limit_gtd --limit-price 1800 --stop-price 1900 --stop-direction STOP_DIRECTION_STOP_DOWN --end-time 2025-01-06T12:00:00Z
+
+# Bracket GTC
+python trade.py --side BUY --product BTC-USD --amount 0.05 --option bracket_gtc --limit-price 35000 --stop-trigger-price 34000
+
+# Bracket GTD (requires --end-time)
+python trade.py --side SELL --product ETH-USD --amount 0.03 --option bracket_gtd --limit-price 36000 --stop-trigger-price 35500 --end-time 2025-01-07T18:00:00Z
 """
 
 import argparse
@@ -30,6 +49,7 @@ import logging
 import sys
 import json
 import os
+import re
 from datetime import datetime, timezone
 from coinbase.rest import RESTClient
 
@@ -38,9 +58,8 @@ from coinbase.rest import RESTClient
 # --------------------------------------------------
 API_KEY_FILE = "perpetuals_trade_cdp_api_key.json"
 
-# By default, we won't pass any leverage/margin_type unless you populate them.
-LEVERAGE = ""     # Use empty string to indicate "no leverage"
-MARGIN_TYPE = ""  # Use empty string to indicate "no margin type"
+LEVERAGE = ""     
+MARGIN_TYPE = ""  
 
 ORDER_ID_FILE = "order_id.txt"
 # CSV format for each line:
@@ -60,10 +79,6 @@ def get_next_order_id() -> int:
     """
     Retrieve the next order ID by reading the last line in order_id.txt,
     then incrementing it.
-    
-    Does NOT write to file (that happens after success/fail).
-    Defaults to 1000 if empty or file doesn't exist,
-    meaning the first new order will be 1001.
     """
     last_order_id = 1000
 
@@ -71,7 +86,6 @@ def get_next_order_id() -> int:
         with open(ORDER_ID_FILE, "r") as f:
             lines = f.read().strip().splitlines()
             if lines:
-                # Grab the last line
                 last_line = lines[-1]
                 parts = last_line.split(",")
                 if len(parts) >= 1:
@@ -85,8 +99,6 @@ def write_order_log(order_id: int, side: str, product: str, amount: str, status_
     """
     Write a single line to order_id.txt in the format:
       order_id,timestamp,side,product,amount,<status_str>
-
-    status_str can be either 'executed' or 'failed reason: <reason>'
     """
     now_utc = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     line = f"{order_id},{now_utc},{side},{product},{amount},{status_str}\n"
@@ -103,7 +115,7 @@ def parse_args():
         description="Create a trade on Coinbase Advanced (default is MARKET IOC)."
     )
 
-    # Positional arguments (optional)
+    # Positional (optional) arguments
     parser.add_argument("pos_side", nargs="?", default=None,
                         help="Order side (BUY or SELL) if provided positionally.")
     parser.add_argument("pos_product", nargs="?", default=None,
@@ -116,9 +128,42 @@ def parse_args():
     parser.add_argument("--product", help="Trading pair (e.g. BTC-USD).")
     parser.add_argument("--amount", help="Base size (e.g. 0.001).")
 
-    # Optional arguments that define the order configuration
-    parser.add_argument("--option", default="market",
-                        help="Order type: 'market' (default), 'limit', or 'stop-limit'.")
+    # Extended order type arguments
+    parser.add_argument(
+        "--option",
+        default="market",
+        choices=[
+            "market",
+            "market_ioc",
+            "limit_ioc",
+            "limit_gtc",
+            "limit_gtd",
+            "limit_fok",
+            "stop_limit_gtc",
+            "stop_limit_gtd",
+            "bracket_gtc",
+            "bracket_gtd",
+        ],
+        help=(
+            "Specify the order type. Default is 'market' if not provided. "
+            "Available: market, market_ioc, limit_ioc, limit_gtc, limit_gtd, "
+            "limit_fok, stop_limit_gtc, stop_limit_gtd, bracket_gtc, bracket_gtd."
+        ),
+    )
+
+    # Convenience flags to avoid using --option for each order type
+    # Example: --limit-gtc translates to option="limit_gtc"
+    parser.add_argument("--limit-gtc", action="store_true",
+                        help="Shortcut for specifying limit_gtc.")
+    parser.add_argument("--limit-fok", action="store_true",
+                        help="Shortcut for specifying limit_fok.")
+    parser.add_argument("--market-ioc", action="store_true",
+                        help="Shortcut for specifying market_ioc.")
+    parser.add_argument("--limit-ioc", action="store_true",
+                        help="Shortcut for specifying limit_ioc.")
+    parser.add_argument("--limit-gtd", action="store_true",
+                        help="Shortcut for specifying limit_gtd.")
+    # Add additional convenience flags if desired for stop_limit_gtc, stop_limit_gtd, bracket_gtc, bracket_gtd, etc.
 
     parser.add_argument("--limit-price", default=None,
                         help="Required for limit or stop-limit orders.")
@@ -129,8 +174,26 @@ def parse_args():
                         help="For stop-limit orders.")
     parser.add_argument("--post-only", default=None,
                         help="For limit orders, 'true' or 'false' (default false).")
+    parser.add_argument("--end-time", default=None,
+                        help="For GTD (Good 'Til Date) orders (ISO8601, e.g. 2025-01-06T23:59:59Z).")
+    parser.add_argument("--stop-trigger-price", default=None,
+                        help="For bracket orders: The stop trigger price.")
 
     args = parser.parse_args()
+
+    # If user provided any of the convenience flags, override args.option
+    if args.limit_gtc:
+        args.option = "limit_gtc"
+    if args.limit_fok:
+        args.option = "limit_fok"
+    if args.market_ioc:
+        args.option = "market_ioc"
+    if args.limit_ioc:
+        args.option = "limit_ioc"
+    if args.limit_gtd:
+        args.option = "limit_gtd"
+    # etc. for any other convenience flags you add
+
     return parser, args
 
 def consolidate_args(args: argparse.Namespace, parser: argparse.ArgumentParser):
@@ -162,21 +225,39 @@ def build_order_configuration(
     limit_price: str = None,
     stop_price: str = None,
     stop_direction: str = None,
-    post_only: bool = False
+    post_only: bool = False,
+    end_time: str = None,
+    stop_trigger_price: str = None
 ) -> dict:
     """
     Create the 'order_configuration' dictionary based on the specified order type.
-    - Default is market_market_ioc if order_type='market'.
-    - 'limit' => limit_limit_gtc
-    - 'stop-limit' => stop_limit_stop_limit_gtc
+    The default (if order_type = 'market') is an immediate-or-cancel market order.
     """
     if order_type == "market":
+        # Equivalent to "market_market_ioc"
         return {
             "market_market_ioc": {
                 "base_size": base_size
             }
         }
-    elif order_type == "limit":
+    elif order_type == "market_ioc":
+        return {
+            "market_market_ioc": {
+                "base_size": base_size
+            }
+        }
+    elif order_type == "limit_ioc":
+        config = {
+            "limit_limit_ioc": {
+                "base_size": base_size
+            }
+        }
+        if limit_price:
+            config["limit_limit_ioc"]["limit_price"] = limit_price
+        if post_only:
+            config["limit_limit_ioc"]["post_only"] = post_only
+        return config
+    elif order_type == "limit_gtc":
         config = {
             "limit_limit_gtc": {
                 "base_size": base_size
@@ -187,7 +268,30 @@ def build_order_configuration(
         if post_only:
             config["limit_limit_gtc"]["post_only"] = post_only
         return config
-    elif order_type == "stop-limit":
+    elif order_type == "limit_gtd":
+        config = {
+            "limit_limit_gtd": {
+                "base_size": base_size,
+                "end_time": end_time
+            }
+        }
+        if limit_price:
+            config["limit_limit_gtd"]["limit_price"] = limit_price
+        if post_only:
+            config["limit_limit_gtd"]["post_only"] = post_only
+        return config
+    elif order_type == "limit_fok":
+        config = {
+            "limit_limit_fok": {
+                "base_size": base_size
+            }
+        }
+        if limit_price:
+            config["limit_limit_fok"]["limit_price"] = limit_price
+        if post_only:
+            config["limit_limit_fok"]["post_only"] = post_only
+        return config
+    elif order_type == "stop_limit_gtc":
         config = {
             "stop_limit_stop_limit_gtc": {
                 "base_size": base_size
@@ -200,27 +304,63 @@ def build_order_configuration(
         if stop_direction:
             config["stop_limit_stop_limit_gtc"]["stop_direction"] = stop_direction
         return config
+    elif order_type == "stop_limit_gtd":
+        config = {
+            "stop_limit_stop_limit_gtd": {
+                "base_size": base_size,
+                "end_time": end_time
+            }
+        }
+        if limit_price:
+            config["stop_limit_stop_limit_gtd"]["limit_price"] = limit_price
+        if stop_price:
+            config["stop_limit_stop_limit_gtd"]["stop_price"] = stop_price
+        if stop_direction:
+            config["stop_limit_stop_limit_gtd"]["stop_direction"] = stop_direction
+        return config
+    elif order_type == "bracket_gtc":
+        config = {
+            "trigger_bracket_gtc": {
+                "base_size": base_size
+            }
+        }
+        if limit_price:
+            config["trigger_bracket_gtc"]["limit_price"] = limit_price
+        if stop_trigger_price:
+            config["trigger_bracket_gtc"]["stop_trigger_price"] = stop_trigger_price
+        return config
+    elif order_type == "bracket_gtd":
+        config = {
+            "trigger_bracket_gtd": {
+                "base_size": base_size,
+                "end_time": end_time
+            }
+        }
+        if limit_price:
+            config["trigger_bracket_gtd"]["limit_price"] = limit_price
+        if stop_trigger_price:
+            config["trigger_bracket_gtd"]["stop_trigger_price"] = stop_trigger_price
+        return config
     else:
         raise ValueError(
             f"Unsupported --option '{order_type}'. "
-            "Valid choices: 'market', 'limit', 'stop-limit'."
+            "Valid choices: 'market', 'market_ioc', 'limit_ioc', 'limit_gtc', 'limit_gtd', "
+            "'limit_fok', 'stop_limit_gtc', 'stop_limit_gtd', 'bracket_gtc', 'bracket_gtd'."
         )
 
 def parse_failure_reason(response_dict: dict) -> str:
     """
     Extract a 'reason' string from the error_response object if success=False.
-    Tries fields in order: 'preview_failure_reason', 'message', 'error_details'.
-    Fallback: 'UNKNOWN'
     """
     if "error_response" not in response_dict:
         return "UNKNOWN"
 
     error_obj = response_dict["error_response"]
     reason = (
-        error_obj.get("preview_failure_reason") or
-        error_obj.get("message") or
-        error_obj.get("error_details") or
-        "UNKNOWN"
+        error_obj.get("preview_failure_reason")
+        or error_obj.get("message")
+        or error_obj.get("error_details")
+        or "UNKNOWN"
     )
     return reason
 
@@ -237,7 +377,9 @@ def place_order(side: str, product: str, amount: str, args: argparse.Namespace):
         limit_price=args.limit_price,
         stop_price=args.stop_price,
         stop_direction=args.stop_direction,
-        post_only=post_only_bool
+        post_only=post_only_bool,
+        end_time=args.end_time,
+        stop_trigger_price=args.stop_trigger_price
     )
 
     # Generate new order ID (but don't write to file yet)
@@ -260,7 +402,6 @@ def place_order(side: str, product: str, amount: str, args: argparse.Namespace):
     if MARGIN_TYPE:
         optional_params["margin_type"] = MARGIN_TYPE
 
-    # We'll store the final status string here
     status_str = "executed"
 
     try:
@@ -272,25 +413,36 @@ def place_order(side: str, product: str, amount: str, args: argparse.Namespace):
             **optional_params
         )
         logging.info("Order response:")
-        # Using default=str to avoid "Object not JSON serializable" errors
         logging.info(json.dumps(response, indent=2, default=str))
 
-        # Check if it's a dict
-        if isinstance(response, dict):
-            if not response.get("success"):
-                # It's a failure => parse reason
-                reason = parse_failure_reason(response)
-                status_str = f"failed reason: {reason}"
+        if isinstance(response, dict) and not response.get("success", False):
+            reason = parse_failure_reason(response)
+            status_str = f"failed reason: {reason}"
 
     except Exception as e:
         logging.error(f"Error placing order: {e}")
-        # If an exception occurs, store that in status_str
-        status_str = f"failed reason: {str(e)}"
 
-    # Now write to order_id.txt with final status
+        # Attempt to extract a shorter reason from the error string
+        reason_extracted = str(e)
+        match = re.search(r'(\{.*\})', reason_extracted)
+        if match:
+            json_part = match.group(1)
+            try:
+                error_json = json.loads(json_part)
+                reason_extracted = (
+                    error_json.get("error_details")
+                    or error_json.get("message")
+                    or error_json.get("error")
+                    or reason_extracted
+                )
+            except json.JSONDecodeError:
+                pass
+
+        status_str = f"failed reason: {reason_extracted}"
+
+    # Write to order_id.txt with final status
     write_order_log(new_order_id, side, product, amount, status_str)
 
-    # If failed, optionally exit non-zero
     if status_str.startswith("failed"):
         sys.exit(1)
 
