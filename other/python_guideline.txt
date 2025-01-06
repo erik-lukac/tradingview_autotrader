@@ -1,0 +1,45 @@
+Modern Python Development Recommendations
+#https://www.stuartellis.name/articles/python-modern-practices/
+
+* Project Setup:
+    * Virtual Environments: Isolate project dependencies using tools like `venv` (recommended for most cases), `virtualenv`, or `conda` (especially useful for scientific computing with non-Python dependencies).
+    * Project Layout: Utilize a structured layout, strongly recommending the `src` layout. This involves a top-level `src` directory containing your package (e.g., `src/my_package`), a `tests` directory for tests, and project configuration files like `pyproject.toml` and potentially a `README.md` at the root. This promotes maintainability and clear separation of concerns.
+    * Version Control: Use Git for version control and collaboration.
+    * Project Tooling: Employ tools like `poetry`, `pipenv`, or `pdm` to manage dependencies, build, and publish packages. These tools centralize dependency management, virtual environment creation, and packaging using the `pyproject.toml` file (PEP 517/518). They are strongly recommended over manual `setup.py` management.
+
+* Code Quality:
+    * Type Hints: Add type annotations (PEP 484) to improve code readability, maintainability, and catch potential errors early using static type checkers like `mypy`.
+    * Code Formatting: Adhere to the PEP 8 style guide for consistent and readable code. Use tools like `black` for automatic formatting.
+    * Testing: Implement comprehensive tests (unit, integration, etc.) using `pytest`.
+    * Linting: Use a linter like `flake8` (or `ruff` for significantly faster performance) to identify stylistic and potential programmatic issues.
+    * Static Analysis: Consider using static analysis tools beyond basic linting, such as `pylint` or `bandit` (for security vulnerabilities), for more advanced code analysis and quality checks.
+
+* Language Features:
+    * f-strings: Utilize f-strings (formatted string literals) for concise and readable string formatting.
+    * Data Classes: Create custom data objects efficiently using `dataclasses` (PEP 557).
+    * Collections.abc: Use abstract base classes from `collections.abc` when defining custom collection types to ensure proper interface implementation.
+    * Pathlib: Work with file and directory paths using `pathlib` for a more object-oriented and cross-platform approach.
+    * Async/Await: Leverage asynchronous programming with `async` and `await` (PEP 492) for improved concurrency in I/O-bound operations. However, use it judiciously; don't force it where it doesn't provide a clear performance benefit.
+    * Enums/Named Tuples: Use `enum` (PEP 435) or `namedtuple` from `collections` for creating immutable sets of named values or simple data structures.
+    * `breakpoint()`: Use `breakpoint()` (PEP 553) for convenient debugging.
+
+* Best Practices:
+    * Use the latest stable Python version: Take advantage of new language features, performance improvements, and security updates.
+    * Avoid using the system Python installation: Create isolated environments for each project.
+    * Write clear and concise docstrings: Document your code effectively using docstrings (PEP 257).
+    * Use `os.scandir()`: Prefer `os.scandir()` over `os.listdir()` for better performance when working with directories, especially when needing file metadata.
+    * Use `subprocess`: Use the `subprocess` module for running external commands, being mindful of security implications when handling user-provided input.
+    * Use TOML for Configuration: Utilize TOML (Tom's Obvious, Minimal Language) for configuration files, especially `pyproject.toml`, which is now the standard for Python project metadata.
+    * Logging: Use the `logging` module for structured logging instead of `print` statements. Configure logging appropriately (e.g., using a configuration file or `basicConfig`) for different log levels and output destinations.
+
+* External Libraries/Modules:
+    * httpx: Use `httpx` for making HTTP requests (a modern and powerful HTTP client).
+    * argparse: Handle command-line arguments effectively using `argparse`.
+    * `typing` module: Use the `typing` module for advanced type hinting features (e.g., `List`, `Dict`, `Optional`, `Union`, `Generic`, etc.).
+
+* Other Considerations:
+    * Dependency Management: Use `pip-compile` (or the equivalent functionality provided by your project tool like `poetry` or `pdm`'s lock files) to generate consistent and reproducible requirements files including hashes for enhanced security. Pin your dependencies to specific versions to avoid unexpected behavior due to updates.
+    * Continuous Integration/Continuous Delivery (CI/CD): Implement CI/CD pipelines to automate testing, building, and deployment.
+    * Only Use Async Where It Makes Sense: The guide cautions against overusing `asyncio`. It's most effective for I/O-bound operations, not CPU-bound tasks.
+    * Error Handling: Implement robust error handling using `try...except` blocks and appropriate exception types.
+    * Security: Be mindful of security best practices, especially when handling user input or external data. Avoid using `eval()` or `exec()`.
