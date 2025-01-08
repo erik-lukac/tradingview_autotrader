@@ -1,0 +1,64 @@
+>>> from coinbase.rest import RESTClient
+... import json
+... client = RESTClient(key_file="perpetuals_trade_cdp_api_key.json")
+... client.get_api_key_permissions()
+... 
+{'can_view': True, 'can_trade': True, 'can_transfer': False, 'portfolio_uuid': '01939152-3367-7138-a24c-8ed09a9d89f0', 'portfolio_type': 'INTX'}
+
+
+>>> orders = client.list_orders()
+>>> for order in orders.orders[:3]: print(f"{order.product_id}, {order.side}, {order.order_configuration['market_market_ioc']['base_size']}, {order.order_type}, {order.ave\
+rage_filled_price}, {order.last_fill_time}")
+... 
+XRP-PERP-INTX, SELL, 10, MARKET, 2.3043, 2025-01-08T08:15:04.368518Z
+XRP-PERP-INTX, SELL, 10, MARKET, 2.3039, 2025-01-08T08:10:28.256246Z
+XRP-PERP-INTX, BUY, 10, MARKET, 2.2805, 2025-01-08T07:15:06.396959Z
+
+
+>>> print(json.dumps(orders.orders[0].to_dict(), indent=4))
+{
+    "order_id": "ba3adaa2-e88d-4a92-93fb-f3c43f96d52b",
+    "product_id": "XRP-PERP-INTX",
+    "user_id": "3a3ac8c8-3eee-56d3-b2e0-3629ea2d8526",
+    "order_configuration": {
+        "market_market_ioc": {
+            "base_size": "10",
+            "rfq_enabled": false,
+            "rfq_disabled": false
+        }
+    },
+    "side": "SELL",
+    "client_order_id": "1020",
+    "status": "FILLED",
+    "time_in_force": "IMMEDIATE_OR_CANCEL",
+    "created_time": "2025-01-08T08:15:04.246860Z",
+    "completion_percentage": "100.00",
+    "filled_size": "10",
+    "average_filled_price": "2.3043",
+    "fee": "",
+    "number_of_fills": "1",
+    "filled_value": "23.043",
+    "pending_cancel": false,
+    "size_in_quote": false,
+    "total_fees": "0",
+    "size_inclusive_of_fees": false,
+    "total_value_after_fees": "23.043",
+    "trigger_status": "INVALID_ORDER_TYPE",
+    "order_type": "MARKET",
+    "reject_reason": "REJECT_REASON_UNSPECIFIED",
+    "settled": true,
+    "product_type": "FUTURE",
+    "reject_message": "",
+    "cancel_message": "",
+    "order_placement_source": "RETAIL_ADVANCED",
+    "outstanding_hold_amount": "0",
+    "is_liquidation": false,
+    "last_fill_time": "2025-01-08T08:15:04.368518Z",
+    "edit_history": [],
+    "leverage": "1",
+    "margin_type": "CROSS",
+    "retail_portfolio_id": "01939152-3367-7138-a24c-8ed09a9d89f0",
+    "originating_order_id": "",
+    "attached_order_id": "",
+    "attached_order_configuration": null
+}

@@ -7,29 +7,23 @@ Example usage:
 # Default is a market order (Market IOC by default). 
 # If you do NOT provide --option, it will place a "market" order:
 python trade.py --side BUY --product BTC-USD --amount 0.01
-python trade.py --side SELL --product ETH-USD --amount 0.02
 
 # Provide explicit --option for different order types:
 
 # Market IOC
 python trade.py --side BUY --product BTC-USD --amount 0.01 --option market_ioc
-python trade.py --side SELL --product ETH-USD --amount 0.02 --option market_ioc
 
 # Limit IOC
 python trade.py --side BUY --product BTC-USD --amount 0.01 --option limit_ioc --limit-price 18000
 
-# Limit GTC (two ways):
+# Limit GTC
 python trade.py --side SELL --product ETH-USD --amount 0.05 --option limit_gtc --limit-price 2200
-# OR with convenience flag:
-python trade.py --side SELL --product ETH-PERP-INTX --amount 0.01 --limit-gtc --limit-price 3650
 
 # Limit GTD (requires --end-time)
 python trade.py --side BUY --product BTC-USD --amount 0.01 --option limit_gtd --limit-price 18000 --end-time 2025-01-06T23:59:59Z
 
-# Limit FOK (two ways):
+# Limit FOK
 python trade.py --side SELL --product BTC-USD --amount 0.02 --option limit_fok --limit-price 18500
-# OR with convenience flag:
-python trade.py --side SELL --product BTC-USD --amount 0.02 --limit-fok --limit-price 18500
 
 # Stop-Limit GTC
 python trade.py --side BUY --product BTC-USD --amount 0.01 --option stop_limit_gtc --limit-price 25000 --stop-price 24000 --stop-direction STOP_DIRECTION_STOP_UP
