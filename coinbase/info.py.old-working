@@ -2,9 +2,9 @@
 """
 info.py
 
-Fetches the latest orders, positions, and perpetuals information from Coinbase Advanced Trading,
-displaying them in a custom tabular format. Demonstrates various Python best practices and
-language features (PEP 484, 557, 435, etc.).
+Fetches the latest orders and positions from Coinbase Advanced Trading,
+displaying them in a custom tabular format. Demonstrates various Python best
+practices and language features (PEP 484, 557, 435, etc.).
 """
 
 import argparse
@@ -156,28 +156,11 @@ async def fetch_orders_and_positions(client: RESTClient) -> Tuple[List[Order], L
     return orders, positions
 
 
-async def fetch_perpetuals_info(client: RESTClient, portfolio_uuid: str) -> List[dict]:
-    """
-    Asynchronously fetch perpetuals positions information from Coinbase.
-
-    :param client: The RESTClient for interacting with the Coinbase API.
-    :param portfolio_uuid: The portfolio UUID to query perpetual positions.
-    :return: A list of perpetual position dictionaries.
-    """
-    loop = asyncio.get_running_loop()
-
-    def _list_perps_positions() -> dict:
-        return client.list_perps_positions(portfolio_uuid).to_dict()
-
-    perp_dict = await loop.run_in_executor(None, _list_perps_positions)
-    return perp_dict.get("positions", [])
-
-
 async def main_async(num_records: int) -> None:
     """
     Main asynchronous function that fetches and displays Coinbase data.
 
-    :param num_records: Number of transactions to show for each category.
+    :param num_records: Number of transactions to show (default: 3).
     """
     key_file_path = Path("perpetuals_trade_cdp_api_key.json")
 
@@ -232,29 +215,6 @@ async def main_async(num_records: int) -> None:
 
         print_table(headers_positions, rows_positions)
 
-    # Display perpetuals information
-    portfolio_uuid = "01939152-3367-7138-a24c-8ed09a9d89f0"  # Replace with your portfolio UUID if different
-    try:
-        perpetuals_positions = await fetch_perpetuals_info(client, portfolio_uuid)
-    except Exception as e:
-        logging.error(f"Error fetching perpetuals info: {e}")
-        return
-
-    if perpetuals_positions:
-        headers_perp = ["Symbol", "Entry Price", "Current Price", "Size", "Total Value", "Unrealized PnL", "Side"]
-        rows_perp = []
-        for pos in perpetuals_positions[:num_records]:
-            symbol = pos.get("symbol", "N/A")
-            entry_price = pos.get("entry_vwap", {}).get("value", "N/A")
-            current_price = pos.get("mark_price", {}).get("value", "N/A")
-            size = pos.get("net_size", "N/A")
-            total_value = pos.get("position_notional", {}).get("value", "N/A")
-            unrealized_pnl = pos.get("unrealized_pnl", {}).get("value", "N/A")
-            side = pos.get("position_side", "N/A")
-            rows_perp.append([symbol, entry_price, current_price, size, total_value, unrealized_pnl, side])
-
-        print_table(headers_perp, rows_perp)
-
 
 def main() -> None:
     """
@@ -266,14 +226,15 @@ def main() -> None:
     )
 
     parser = argparse.ArgumentParser(
-        description="Show the latest orders, positions, and perpetuals info from Coinbase Advanced Trading."
+        description="Show the latest orders and positions from Coinbase Advanced Trading."
     )
+    # Positional argument for number of records
     parser.add_argument(
         "number",
         type=int,
         nargs='?',
         default=3,
-        help="Number of records to show for each category (default: 3).",
+        help="Number of transactions to show (default: 3).",
     )
     args = parser.parse_args()
     num_records: int = args.number
