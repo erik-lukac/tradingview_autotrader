@@ -241,7 +241,8 @@ async def main_async(num_records: int) -> None:
         return
 
     if perpetuals_positions:
-        headers_perp = ["Symbol", "Entry Price", "Current Price", "Size", "Total Value", "Unrealized PnL", "Side"]
+        # Change the header from "Unrealized PnL" to "PnL"
+        headers_perp = ["Symbol", "Entry Price", "Current Price", "Size", "Total Value", "PnL", "Side"]
         rows_perp = []
         for pos in perpetuals_positions[:num_records]:
             symbol = pos.get("symbol", "N/A")
@@ -249,9 +250,10 @@ async def main_async(num_records: int) -> None:
             current_price = pos.get("mark_price", {}).get("value", "N/A")
             size = pos.get("net_size", "N/A")
             total_value = pos.get("position_notional", {}).get("value", "N/A")
-            unrealized_pnl = pos.get("unrealized_pnl", {}).get("value", "N/A")
+            # Fetch aggregated_pnl rather than unrealized_pnl
+            pnl = pos.get("aggregated_pnl", {}).get("value", "N/A")
             side = pos.get("position_side", "N/A")
-            rows_perp.append([symbol, entry_price, current_price, size, total_value, unrealized_pnl, side])
+            rows_perp.append([symbol, entry_price, current_price, size, total_value, pnl, side])
 
         print_table(headers_perp, rows_perp)
 
