@@ -1,0 +1,84 @@
+//@version=6
+strategy("eGPT - Zero Lag Trend Signals (MTF) [AlgoAlpha]",
+     overlay=true,
+     scale=scale.right,  // Ensures scaling aligns with the price chart
+     initial_capital=100000,
+     default_qty_type=strategy.percent_of_equity,
+     default_qty_value=100,
+     pyramiding=0,
+     calc_on_every_tick=true)
+
+//-------------------------------------
+// User Inputs
+//-------------------------------------
+length    = input.int(70, "Length", tooltip="Look-back window for the Zero-Lag EMA calculations", group="Main Calculations")
+mult      = input.float(1.2, "Band Multiplier", tooltip="Thickness of the bands; larger = less noise", group="Main Calculations")
+t1        = input.timeframe("5", "Time frame 1", group="Extra Timeframes")
+t2        = input.timeframe("15", "Time frame 2", group="Extra Timeframes")
+t3        = input.timeframe("60", "Time frame 3", group="Extra Timeframes")
+t4        = input.timeframe("240", "Time frame 4", group="Extra Timeframes")
+t5        = input.timeframe("1D", "Time frame 5", group="Extra Timeframes")
+green     = input.color(#00ffbb, "Bullish Color", group="Appearance")
+red       = input.color(#ff1100, "Bearish Color", group="Appearance")
+
+//-------------------------------------
+// Core Calculations (Adjusted for Alignment)
+//-------------------------------------
+src        = close
+lag        = math.floor((length - 1) / 2)
+zlema      = ta.ema(src + (src - src[lag]), length)
+volatility = ta.highest(ta.atr(length), length * 3) * mult
+
+//-------------------------------------
+// Date Range Filter (2018–2069)
+//-------------------------------------
+inDateRange = time >= timestamp(2018, 1, 1, 0, 0) and time < timestamp(2069, 12, 31, 0, 0)
+
+//-------------------------------------
+// Trend Logic
+//-------------------------------------
+var int trend = 0
+if ta.crossover(close, zlema + volatility)
+    trend := 1
+if ta.crossunder(close, zlema - volatility)
+    trend := -1
+
+//-------------------------------------
+// Adjusting Plots to Align With Strategy
+//-------------------------------------
+zlemaColor = trend == 1 ? color.new(green, 70) : color.new(red, 70)
+m          = plot(zlema[1], title="Zero Lag Basis", linewidth=2, color=zlemaColor)  // Shifted by 1 bar
+upper      = plot(trend == -1 ? zlema[1] + volatility : na, style=plot.style_linebr, color=color.new(red, 90), title="Upper Deviation Band")
+lower      = plot(trend == 1 ? zlema[1] - volatility : na, style=plot.style_linebr, color=color.new(green, 90), title="Lower Deviation Band")
+fill(m, upper, color=color.new(red, 70))
+fill(m, lower, color=color.new(green, 70))
+
+//---- "Big" Trend Arrows (Green/Red) ----
+plotshape(ta.crossunder(trend, 0) ? zlema[1] + volatility : na, title="Bearish Trend (Big Arrow)", style=shape.labeldown, location=location.absolute, color=red, text="▼", textcolor=color.white, size=size.small)
+plotshape(ta.crossover(trend, 0) ? zlema[1] - volatility : na,  title="Bullish Trend (Big Arrow)", style=shape.labelup,   location=location.absolute, color=green, text="▲", textcolor=color.white, size=size.small)
+
+//-------------------------------------
+// Multi-Time Frame (MTF) Trend Calls (Fixed for Alignment)
+//-------------------------------------
+s1 = request.security(syminfo.tickerid, t1, trend[1], lookahead=barmerge.lookahead_off)
+s2 = request.security(syminfo.tickerid, t2, trend[1], lookahead=barmerge.lookahead_off)
+s3 = request.security(syminfo.tickerid, t3, trend[1], lookahead=barmerge.lookahead_off)
+s4 = request.security(syminfo.tickerid, t4, trend[1], lookahead=barmerge.lookahead_off)
+s5 = request.security(syminfo.tickerid, t5, trend[1], lookahead=barmerge.lookahead_off)
+
+//-------------------------------------
+// STRATEGY LOGIC
+//  - Entry = Big Green Arrow => trend crosses above 0
+//  - Exit  = Big Red Arrow   => trend crosses below 0
+//-------------------------------------
+crossOverTrend  = ta.crossover(trend, 0)
+crossUnderTrend = ta.crossunder(trend, 0)
+
+longEntryCond = inDateRange and crossOverTrend
+longExitCond  = inDateRange and crossUnderTrend
+
+if longEntryCond
+    strategy.entry("Long", strategy.long)
+
+if longExitCond
+    strategy.close("Long")
