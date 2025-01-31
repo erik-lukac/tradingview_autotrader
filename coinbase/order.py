@@ -46,6 +46,16 @@ DESCRIPTION:
 
   Order records are written to 'order_id.txt' with status logged. If an
   order fails, the script exits with a non-zero return code.
+
+  Now, it also prints a JSON object to stdout:
+    {
+      "local_order_id": <int>,
+      "coinbase_order_id": <str or null>,
+      "average_filled_price": <str or null>,
+      "status": <"executed" or "failed_<reason>">,
+      "timestamp": <ISO8601 datetime string>,
+      "exit_code": <0 or 1>
+    }
 """
 
 import argparse
@@ -319,18 +329,17 @@ def build_order_configuration(
     else:
         raise ValueError(f"Unsupported --option '{order_type}'.")
 
+
 def parse_failure_reason(response_obj) -> str:
     """
-    If an API call fails, attempt to extract a meaningful error message.
+    If the API call fails, extracts a meaningful error message.
+    Works for both dict-based and typed error_response objects.
     """
-    # If there's no error_response at all
     if not hasattr(response_obj, "error_response") or response_obj.error_response is None:
         return "UNKNOWN"
 
-    err = response_obj.error_response  # This could be a dict or typed object
-
+    err = response_obj.error_response
     if isinstance(err, dict):
-        # For dictionary-based errors
         return (
             err.get("preview_failure_reason")
             or err.get("message")
@@ -339,7 +348,6 @@ def parse_failure_reason(response_obj) -> str:
             or "UNKNOWN"
         )
     else:
-        # For typed objects
         return (
             getattr(err, "preview_failure_reason", None)
             or getattr(err, "message", None)
@@ -347,6 +355,7 @@ def parse_failure_reason(response_obj) -> str:
             or getattr(err, "error", None)
             or "UNKNOWN"
         )
+
 
 def run_order_info_script(coinbase_order_id: str) -> Optional[dict]:
     """
@@ -364,7 +373,6 @@ def run_order_info_script(coinbase_order_id: str) -> Optional[dict]:
     if result.returncode != 0:
         logging.warning(f"order_info.py returned code {result.returncode}")
 
-    # Look for "Order info: { ... }" in stdout
     for line in result.stdout.splitlines():
         match = re.search(r"Order info:\s+(\{.*\})", line)
         if match:
@@ -381,8 +389,11 @@ def run_order_info_script(coinbase_order_id: str) -> Optional[dict]:
 def place_order(side: str, product: str, amount: str, args: argparse.Namespace) -> None:
     """
     Places the order, logs the result to 'order_id.txt', and fetches fill price.
-    If an order fails, exit code is non-zero.
+    In the end, prints a JSON object with fields:
+      local_order_id, coinbase_order_id, average_filled_price, status, timestamp, exit_code
+    If an order fails, exit_code=1 and the script exits with 1.
     """
+    now_utc = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     post_only_bool = (args.post_only.lower() == "true") if args.post_only else False
 
     # Build final JSON config
@@ -397,7 +408,7 @@ def place_order(side: str, product: str, amount: str, args: argparse.Namespace) 
         stop_trigger_price=args.stop_trigger_price
     )
 
-    local_id = get_next_order_id()  # local "client_order_id"
+    local_id = get_next_order_id()
     logging.info(f"Order configuration: {order_config}")
     logging.info(f"Generated Client Order ID: {local_id}")
 
@@ -414,10 +425,13 @@ def place_order(side: str, product: str, amount: str, args: argparse.Namespace) 
     if MARGIN_TYPE:
         optional_params["margin_type"] = MARGIN_TYPE
 
+    coinbase_order_id = None
+    avg_fill_price_str = None
+    exit_code = 0
+    # status -> "executed" or "failed_reason"
     status_str = "executed"
-    coinbase_order_id = ""
-    avg_fill_price_str = ""
 
+    # Attempt to place the order
     try:
         response = client.create_order(
             client_order_id=str(local_id),
@@ -429,44 +443,64 @@ def place_order(side: str, product: str, amount: str, args: argparse.Namespace) 
         logging.info("Server response:")
         logging.info(str(response))
 
-        # If success is False, set status to failed
         if not response.success:
             reason = parse_failure_reason(response)
-            status_str = f"failed reason: {reason}"
+            status_str = f"failed_{reason}"
+            exit_code = 1
         else:
-            # On success, fetch the real coinbase_order_id
+            # On success, get coinbase_order_id
             sr = response.success_response
             if isinstance(sr, dict):
-                coinbase_order_id = sr.get("order_id", "")
+                coinbase_order_id = sr.get("order_id", None)
             else:
-                coinbase_order_id = getattr(sr, "order_id", "")
+                coinbase_order_id = getattr(sr, "order_id", None)
 
     except Exception as e:
         logging.error(f"Error placing the order: {e}")
-        status_str = f"failed reason: {e}"
+        status_str = f"failed_{e}"
+        exit_code = 1
 
-    # If failed, log & exit
-    if status_str.startswith("failed"):
-        write_order_log(local_id, side, product, amount, status_str)
-        sys.exit(1)
-
-    # Otherwise, call order_info.py to get average_filled_price
-    if coinbase_order_id:
+    # If it was successful, we can fetch the average_filled_price
+    if not status_str.startswith("failed") and coinbase_order_id:
         info_dict = run_order_info_script(coinbase_order_id)
         if info_dict and "average_filled_price" in info_dict:
             avg_fill_price_str = str(info_dict["average_filled_price"])
             logging.info(f"Fetched average_filled_price={avg_fill_price_str} from order_info.py")
         else:
             logging.info("Could not retrieve average_filled_price from order_info.py output.")
-    else:
-        logging.warning("No coinbase_order_id found in success_response.")
 
-    # Write final log entry, with average_filled_price then coinbase_order_id
-    write_order_log(local_id, side, product, amount, status_str, avg_fill_price_str, coinbase_order_id)
+    # Convert None-> empty strings for logging CSV
+    coinbase_order_id_str = coinbase_order_id if coinbase_order_id else ""
+    avg_filled_price_for_csv = avg_fill_price_str if avg_fill_price_str else ""
 
-    # Optionally, print the fill price to the user
-    if avg_fill_price_str:
-        print(f"Average Filled Price: {avg_fill_price_str}")
+    # Write local CSV log
+    write_order_log(
+        local_id=local_id,
+        side=side,
+        product=product,
+        amount=amount,
+        status_str=status_str,
+        avg_filled_price=avg_filled_price_for_csv,
+        coinbase_order_id=coinbase_order_id_str
+    )
+
+    # Build final JSON output
+    # (if coinbase_order_id or avg_fill_price_str is None, we'll store null in JSON)
+    json_output = {
+        "local_order_id": local_id,
+        "coinbase_order_id": coinbase_order_id,
+        "average_filled_price": avg_fill_price_str,
+        "status": status_str,
+        "timestamp": now_utc,
+        "exit_code": exit_code
+    }
+
+    # Print the JSON
+    print(json.dumps(json_output))
+
+    # Finally, exit with the correct code
+    if exit_code != 0:
+        sys.exit(exit_code)
 
 
 def main() -> None:
