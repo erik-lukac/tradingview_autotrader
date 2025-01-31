@@ -1,0 +1,168 @@
+#!/usr/bin/env python3
+"""
+trade.py
+========
+
+Place three orders (market, stop_limit_gtc, limit_gtc) via ./order.py, then
+run ./info.py to show the final overview.
+
+Example usage:
+    ./trade.py --side LONG --product SUI-PERP-INTX --size 3 --stop-loss-price 4.01
+"""
+
+import argparse
+import logging
+import sys
+import subprocess
+from typing import Optional
+
+def main() -> None:
+    # ----------------------------
+    # Configuration
+    # ----------------------------
+    ENABLE_LOGGING = True
+    DEFAULT_PROFIT_LOSS_RATIO = 1.5
+    DEFAULT_STOP_OFFSET_PERCENT = 0.02  # 2% offset above/below the user's stop-loss price
+
+    # ----------------------------
+    # Logging Setup
+    # ----------------------------
+    logger = logging.getLogger("trade_logger")
+    logger.setLevel(logging.INFO)
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    logger.addHandler(console_handler)
+
+    # ----------------------------
+    # Argument Parsing
+    # ----------------------------
+    parser = argparse.ArgumentParser(
+        description="Place three orders (market, stop_limit_gtc, limit_gtc) via ./order.py, then run ./info.py."
+    )
+    parser.add_argument("--side", required=True, choices=["LONG", "SHORT"],
+                        help="Trade side: LONG or SHORT.")
+    parser.add_argument("--product", required=True,
+                        help="Product to trade, e.g. SUI-PERP-INTX.")
+    parser.add_argument("--size", type=float, required=True,
+                        help="Position size.")
+    parser.add_argument("--stop-loss-price", type=float, required=True,
+                        help="Stop-loss price (used as the limit price).")
+    parser.add_argument("--profit-loss-ratio", type=float,
+                        default=DEFAULT_PROFIT_LOSS_RATIO,
+                        help="Risk/reward ratio (default 1.5).")
+    parser.add_argument("--no-logging", action="store_true",
+                        help="Disable console logging.")
+    args = parser.parse_args()
+
+    # ----------------------------
+    # Handle Logging Preference
+    # ----------------------------
+    if not ENABLE_LOGGING or args.no_logging:
+        logger.setLevel(logging.WARNING)
+        console_handler.setLevel(logging.WARNING)
+
+    side = args.side.upper()
+    product = args.product
+    size = args.size
+    stop_loss_price = args.stop_loss_price
+    ratio = args.profit_loss_ratio
+
+    # ----------------------------
+    # Determine Order Sides
+    # ----------------------------
+    if side == "LONG":
+        open_side = "buy"   # open LONG
+        close_side = "sell" # close LONG
+    else:
+        open_side = "sell"  # open SHORT
+        close_side = "buy"  # close SHORT
+
+    # ----------------------------
+    # Calculate Stop/Limit Prices
+    # ----------------------------
+    # Per your requirement:
+    #   --stop-loss-price becomes the limit-price in stop_limit_gtc
+    #   The stop trigger is offset above/below that by DEFAULT_STOP_OFFSET_PERCENT.
+
+    offset = stop_loss_price * DEFAULT_STOP_OFFSET_PERCENT
+
+    if side == "LONG":
+        # Stop trigger is slightly above the limit price
+        stop_price_for_stop_loss = stop_loss_price + offset
+        limit_price_for_stop_loss = stop_loss_price
+        # Take-profit is above the stop-loss price
+        take_profit_price = stop_loss_price + (ratio * offset)
+    else:
+        # Stop trigger is slightly below the limit price
+        stop_price_for_stop_loss = stop_loss_price - offset
+        limit_price_for_stop_loss = stop_loss_price
+        # Take-profit is below the stop-loss price
+        take_profit_price = stop_loss_price - (ratio * offset)
+
+    # ----------------------------
+    # Build the Three Orders
+    # ----------------------------
+    # 1) Market (open)
+    order1 = f"./order.py {open_side} {product} {size}"
+
+    # 2) Stop-limit GTC (stop-loss)
+    #    --limit-price is exactly the user-supplied stop-loss-price
+    #    --stop-price is offset
+    order2 = (
+        f"./order.py {close_side.upper()} {product} {size} "
+        f"--option stop_limit_gtc "
+        f"--stop-price {stop_price_for_stop_loss:.6f} "
+        f"--limit-price {limit_price_for_stop_loss:.6f}"
+    )
+
+    # 3) Limit GTC (take profit)
+    order3 = (
+        f"./order.py {close_side.upper()} {product} {size} "
+        f"--option limit_gtc "
+        f"--limit-price {take_profit_price:.6f}"
+    )
+
+    # ----------------------------
+    # Logging: Plan
+    # ----------------------------
+    logger.info("=== TRADE PLAN ===")
+    logger.info("Side: %s, Product: %s, Size: %.2f", side, product, size)
+    logger.info("Stop-Loss Price (limit-price): %.4f", stop_loss_price)
+    logger.info("Stop Trigger Offset (%.2f%%): %.4f", (DEFAULT_STOP_OFFSET_PERCENT * 100), offset)
+    logger.info("Profit/Loss Ratio: %.2f", ratio)
+    logger.info("Market (open)    : %s", order1)
+    logger.info("Stop-Limit (SL)  : %s", order2)
+    logger.info("Limit (TP)       : %s", order3)
+
+    # ----------------------------
+    # Execution
+    # ----------------------------
+    logger.info("=== EXECUTION ===")
+    commands = [order1, order2, order3]
+
+    for cmd in commands:
+        logger.info("Executing: %s", cmd)
+        result = subprocess.run(cmd.split(), capture_output=True, text=True)
+        if result.stdout.strip():
+            logger.info("stdout:\n%s", result.stdout.strip())
+        if result.stderr.strip():
+            logger.info("stderr:\n%s", result.stderr.strip())
+        if result.returncode != 0:
+            logger.error("Command failed: %s", cmd)
+            sys.exit(1)
+
+    # ----------------------------
+    # Final Info
+    # ----------------------------
+    logger.info("=== RESULT INFO ===")
+    info_result = subprocess.run(["./info.py"], capture_output=True, text=True)
+    if info_result.stdout.strip():
+        logger.info("\n%s", info_result.stdout.strip())
+    if info_result.stderr.strip():
+        logger.error("info.py stderr:\n%s", info_result.stderr.strip())
+    if info_result.returncode != 0:
+        logger.error("Failed to run ./info.py.")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()

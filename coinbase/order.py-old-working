@@ -54,19 +54,20 @@ import sys
 import json
 import os
 import re
-import subprocess
 from datetime import datetime, timezone
 from coinbase.rest import RESTClient
-from typing import Tuple, Dict, Any, Optional
+from typing import Tuple, Dict, Any
 
 # --------------------------------------------------
 # CONFIGURATIONS
 # --------------------------------------------------
+# Toggle logging on/off here:
 ENABLE_LOGGING = True
 
 API_KEY_FILE = "perpetuals_trade_cdp_api_key.json"
 ORDER_ID_FILE = "order_id.txt"
 
+# Leverage & Margin (optional: only passed if not empty)
 LEVERAGE = ""
 MARGIN_TYPE = ""
 
@@ -83,15 +84,17 @@ def init_logger() -> None:
         )
         logging.info("Logging is enabled.")
     else:
+        # Disable all logging
         logging.disable(logging.CRITICAL)
 
 
 def get_next_order_id() -> int:
     """
-    Reads the last local order ID from 'order_id.txt' if available.
-    Returns the next integer ID (e.g. 1001, 1002, etc.).
+    Reads the last order ID from 'order_id.txt' if available.
+    Returns the next integer ID.
     """
     last_order_id = 1000
+
     if os.path.exists(ORDER_ID_FILE):
         with open(ORDER_ID_FILE, "r") as f:
             lines = f.read().strip().splitlines()
@@ -103,39 +106,31 @@ def get_next_order_id() -> int:
                         last_order_id = int(parts[0])
                     except ValueError:
                         last_order_id = 1000
+
     return last_order_id + 1
 
 
-def write_order_log(
-    local_id: int,
-    side: str,
-    product: str,
-    amount: str,
-    status_str: str,
-    avg_filled_price: str = "",
-    coinbase_order_id: str = ""
-) -> None:
+def write_order_log(order_id: int, side: str, product: str, amount: str, status_str: str) -> None:
     """
     Appends a line to 'order_id.txt' in CSV format:
-      local_id,timestamp,side,product,amount,status,average_filled_price,coinbase_order_id
+    order_id,timestamp,side,product,amount,status
     """
     now_utc = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    line = (
-        f"{local_id},{now_utc},{side},{product},{amount},"
-        f"{status_str},{avg_filled_price},{coinbase_order_id}\n"
-    )
+    line = f"{order_id},{now_utc},{side},{product},{amount},{status_str}\n"
+
     with open(ORDER_ID_FILE, "a") as f:
         f.write(line)
 
 
 def parse_args() -> Tuple[argparse.ArgumentParser, argparse.Namespace]:
     """
-    Defines and parses CLI arguments.
+    Defines and parses CLI arguments, returning the parser and parsed results.
     """
     parser = argparse.ArgumentParser(
         description="Submit an order to Coinbase Advanced. Defaults to MARKET IOC."
     )
 
+    # Optional positional arguments
     parser.add_argument("pos_side", nargs="?", default=None,
                         help="Side (BUY or SELL), if used positionally.")
     parser.add_argument("pos_product", nargs="?", default=None,
@@ -182,6 +177,7 @@ def parse_args() -> Tuple[argparse.ArgumentParser, argparse.Namespace]:
                         help="Shortcut for limit_ioc.")
     parser.add_argument("--limit-gtd", action="store_true",
                         help="Shortcut for limit_gtd.")
+    # More could be added for stop_limit_gtc, bracket_gtc, etc.
 
     parser.add_argument("--limit-price", default=None,
                         help="For limit or stop-limit orders.")
@@ -217,7 +213,7 @@ def parse_args() -> Tuple[argparse.ArgumentParser, argparse.Namespace]:
 def consolidate_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -> Tuple[str, str, str]:
     """
     Resolve side, product, and amount from positional or named arguments.
-    Exits if any are missing.
+    Exits the program with help if any are missing.
     """
     final_side = args.side if args.side else args.pos_side
     final_product = args.product if args.product else args.pos_product
@@ -253,39 +249,68 @@ def build_order_configuration(
     Build the dictionary specifying order configuration for the REST API call.
     """
     if order_type == "market":
-        return {"market_market_ioc": {"base_size": base_size}}
+        return {
+            "market_market_ioc": {
+                "base_size": base_size
+            }
+        }
     elif order_type == "market_ioc":
-        return {"market_market_ioc": {"base_size": base_size}}
+        return {
+            "market_market_ioc": {
+                "base_size": base_size
+            }
+        }
     elif order_type == "limit_ioc":
-        config = {"limit_limit_ioc": {"base_size": base_size}}
+        config = {
+            "limit_limit_ioc": {
+                "base_size": base_size
+            }
+        }
         if limit_price:
             config["limit_limit_ioc"]["limit_price"] = limit_price
         if post_only:
             config["limit_limit_ioc"]["post_only"] = post_only
         return config
     elif order_type == "limit_gtc":
-        config = {"limit_limit_gtc": {"base_size": base_size}}
+        config = {
+            "limit_limit_gtc": {
+                "base_size": base_size
+            }
+        }
         if limit_price:
             config["limit_limit_gtc"]["limit_price"] = limit_price
         if post_only:
             config["limit_limit_gtc"]["post_only"] = post_only
         return config
     elif order_type == "limit_gtd":
-        config = {"limit_limit_gtd": {"base_size": base_size, "end_time": end_time}}
+        config = {
+            "limit_limit_gtd": {
+                "base_size": base_size,
+                "end_time": end_time
+            }
+        }
         if limit_price:
             config["limit_limit_gtd"]["limit_price"] = limit_price
         if post_only:
             config["limit_limit_gtd"]["post_only"] = post_only
         return config
     elif order_type == "limit_fok":
-        config = {"limit_limit_fok": {"base_size": base_size}}
+        config = {
+            "limit_limit_fok": {
+                "base_size": base_size
+            }
+        }
         if limit_price:
             config["limit_limit_fok"]["limit_price"] = limit_price
         if post_only:
             config["limit_limit_fok"]["post_only"] = post_only
         return config
     elif order_type == "stop_limit_gtc":
-        config = {"stop_limit_stop_limit_gtc": {"base_size": base_size}}
+        config = {
+            "stop_limit_stop_limit_gtc": {
+                "base_size": base_size
+            }
+        }
         if limit_price:
             config["stop_limit_stop_limit_gtc"]["limit_price"] = limit_price
         if stop_price:
@@ -294,7 +319,12 @@ def build_order_configuration(
             config["stop_limit_stop_limit_gtc"]["stop_direction"] = stop_direction
         return config
     elif order_type == "stop_limit_gtd":
-        config = {"stop_limit_stop_limit_gtd": {"base_size": base_size, "end_time": end_time}}
+        config = {
+            "stop_limit_stop_limit_gtd": {
+                "base_size": base_size,
+                "end_time": end_time
+            }
+        }
         if limit_price:
             config["stop_limit_stop_limit_gtd"]["limit_price"] = limit_price
         if stop_price:
@@ -303,89 +333,60 @@ def build_order_configuration(
             config["stop_limit_stop_limit_gtd"]["stop_direction"] = stop_direction
         return config
     elif order_type == "bracket_gtc":
-        config = {"trigger_bracket_gtc": {"base_size": base_size}}
+        config = {
+            "trigger_bracket_gtc": {
+                "base_size": base_size
+            }
+        }
         if limit_price:
             config["trigger_bracket_gtc"]["limit_price"] = limit_price
         if stop_trigger_price:
             config["trigger_bracket_gtc"]["stop_trigger_price"] = stop_trigger_price
         return config
     elif order_type == "bracket_gtd":
-        config = {"trigger_bracket_gtd": {"base_size": base_size, "end_time": end_time}}
+        config = {
+            "trigger_bracket_gtd": {
+                "base_size": base_size,
+                "end_time": end_time
+            }
+        }
         if limit_price:
             config["trigger_bracket_gtd"]["limit_price"] = limit_price
         if stop_trigger_price:
             config["trigger_bracket_gtd"]["stop_trigger_price"] = stop_trigger_price
         return config
     else:
-        raise ValueError(f"Unsupported --option '{order_type}'.")
+        raise ValueError(
+            f"Unsupported --option '{order_type}'. Valid choices: "
+            "market, market_ioc, limit_ioc, limit_gtc, limit_gtd, "
+            "limit_fok, stop_limit_gtc, stop_limit_gtd, bracket_gtc, bracket_gtd."
+        )
 
-def parse_failure_reason(response_obj) -> str:
+
+def parse_failure_reason(response_dict: Dict[str, Any]) -> str:
     """
     If an API call fails, attempt to extract a meaningful error message.
     """
-    # If there's no error_response at all
-    if not hasattr(response_obj, "error_response") or response_obj.error_response is None:
+    if "error_response" not in response_dict:
         return "UNKNOWN"
 
-    err = response_obj.error_response  # This could be a dict or typed object
-
-    if isinstance(err, dict):
-        # For dictionary-based errors
-        return (
-            err.get("preview_failure_reason")
-            or err.get("message")
-            or err.get("error_details")
-            or err.get("error")
-            or "UNKNOWN"
-        )
-    else:
-        # For typed objects
-        return (
-            getattr(err, "preview_failure_reason", None)
-            or getattr(err, "message", None)
-            or getattr(err, "error_details", None)
-            or getattr(err, "error", None)
-            or "UNKNOWN"
-        )
-
-def run_order_info_script(coinbase_order_id: str) -> Optional[dict]:
-    """
-    Run './order_info.py <coinbase_order_id>' in a subprocess,
-    parse the JSON from the "[INFO] Order info: { ... }" line,
-    return the parsed dict. If error, returns None.
-    """
-    cmd = ["./order_info.py", coinbase_order_id]
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    except FileNotFoundError:
-        logging.error("order_info.py not found or not executable.")
-        return None
-
-    if result.returncode != 0:
-        logging.warning(f"order_info.py returned code {result.returncode}")
-
-    # Look for "Order info: { ... }" in stdout
-    for line in result.stdout.splitlines():
-        match = re.search(r"Order info:\s+(\{.*\})", line)
-        if match:
-            info_json = match.group(1)
-            try:
-                info_dict = json.loads(info_json)
-                return info_dict
-            except json.JSONDecodeError:
-                logging.error("Failed to parse JSON from order_info.py output.")
-                return None
-    return None
+    error_obj = response_dict["error_response"]
+    return (
+        error_obj.get("preview_failure_reason")
+        or error_obj.get("message")
+        or error_obj.get("error_details")
+        or "UNKNOWN"
+    )
 
 
 def place_order(side: str, product: str, amount: str, args: argparse.Namespace) -> None:
     """
-    Places the order, logs the result to 'order_id.txt', and fetches fill price.
-    If an order fails, exit code is non-zero.
+    Use the RESTClient to place the order, then log the result to a local file.
+    Exits with code 1 if the order fails.
     """
     post_only_bool = (args.post_only.lower() == "true") if args.post_only else False
 
-    # Build final JSON config
+    # Build the final JSON config for the order
     order_config = build_order_configuration(
         order_type=args.option,
         base_size=amount,
@@ -397,9 +398,11 @@ def place_order(side: str, product: str, amount: str, args: argparse.Namespace) 
         stop_trigger_price=args.stop_trigger_price
     )
 
-    local_id = get_next_order_id()  # local "client_order_id"
+    # Assign a new order ID
+    new_order_id = get_next_order_id()
+
     logging.info(f"Order configuration: {order_config}")
-    logging.info(f"Generated Client Order ID: {local_id}")
+    logging.info(f"Generated Client Order ID: {new_order_id}")
 
     # Create REST client
     try:
@@ -408,6 +411,7 @@ def place_order(side: str, product: str, amount: str, args: argparse.Namespace) 
         logging.error(f"API key file '{API_KEY_FILE}' not found.")
         sys.exit(1)
 
+    # Optional parameters if LEVERAGE or MARGIN_TYPE are set
     optional_params: Dict[str, str] = {}
     if LEVERAGE:
         optional_params["leverage"] = LEVERAGE
@@ -415,61 +419,56 @@ def place_order(side: str, product: str, amount: str, args: argparse.Namespace) 
         optional_params["margin_type"] = MARGIN_TYPE
 
     status_str = "executed"
-    coinbase_order_id = ""
-    avg_fill_price_str = ""
 
     try:
         response = client.create_order(
-            client_order_id=str(local_id),
+            client_order_id=str(new_order_id),
             product_id=product,
             side=side,
             order_configuration=order_config,
             **optional_params
         )
         logging.info("Server response:")
-        logging.info(str(response))
+        logging.info(json.dumps(response, indent=2, default=str))
 
-        # If success is False, set status to failed
-        if not response.success:
+        # Check if success is False
+        if isinstance(response, dict) and not response.get("success", False):
             reason = parse_failure_reason(response)
             status_str = f"failed reason: {reason}"
-        else:
-            # On success, fetch the real coinbase_order_id
-            sr = response.success_response
-            if isinstance(sr, dict):
-                coinbase_order_id = sr.get("order_id", "")
-            else:
-                coinbase_order_id = getattr(sr, "order_id", "")
 
     except Exception as e:
         logging.error(f"Error placing the order: {e}")
-        status_str = f"failed reason: {e}"
 
-    # If failed, log & exit
+        # Attempt to parse any JSON snippet in the exception for a clearer error
+        reason_extracted = str(e)
+        match = re.search(r'(\{.*\})', reason_extracted)
+        if match:
+            json_part = match.group(1)
+            try:
+                error_json = json.loads(json_part)
+                reason_extracted = (
+                    error_json.get("error_details")
+                    or error_json.get("message")
+                    or error_json.get("error")
+                    or reason_extracted
+                )
+            except json.JSONDecodeError:
+                pass
+
+        status_str = f"failed reason: {reason_extracted}"
+
+    # Write the final status (executed or failed reason) to the log file
+    write_order_log(new_order_id, side, product, amount, status_str)
+
+    # Exit with a non-zero code if the order failed
     if status_str.startswith("failed"):
-        write_order_log(local_id, side, product, amount, status_str)
         sys.exit(1)
-
-    # Otherwise, call order_info.py to get average_filled_price
-    if coinbase_order_id:
-        info_dict = run_order_info_script(coinbase_order_id)
-        if info_dict and "average_filled_price" in info_dict:
-            avg_fill_price_str = str(info_dict["average_filled_price"])
-            logging.info(f"Fetched average_filled_price={avg_fill_price_str} from order_info.py")
-        else:
-            logging.info("Could not retrieve average_filled_price from order_info.py output.")
-    else:
-        logging.warning("No coinbase_order_id found in success_response.")
-
-    # Write final log entry, with average_filled_price then coinbase_order_id
-    write_order_log(local_id, side, product, amount, status_str, avg_fill_price_str, coinbase_order_id)
-
-    # Optionally, print the fill price to the user
-    if avg_fill_price_str:
-        print(f"Average Filled Price: {avg_fill_price_str}")
 
 
 def main() -> None:
+    """
+    Main driver: sets up logging, processes CLI arguments, and sends the order.
+    """
     init_logger()
     parser, args = parse_args()
     side, product, amount = consolidate_args(args, parser)
