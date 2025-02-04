@@ -1,11 +1,11 @@
 //@version=6
 strategy("eGPT - Zero Lag Trend Signals (MTF) [AlgoAlpha]",
      overlay=true,
-     scale=scale.right,  // Ensures scaling aligns with the price chart
+     scale=scale.right,  // Aligns scaling with the price chart
      initial_capital=100000,
      default_qty_type=strategy.percent_of_equity,
      default_qty_value=100,
-     pyramiding=0,
+     pyramiding=10,      // Allow multiple entries (for small arrow additions)
      calc_on_every_tick=true)
 
 //-------------------------------------
@@ -47,18 +47,31 @@ if ta.crossunder(close, zlema - volatility)
 // Adjusting Plots to Align With Strategy
 //-------------------------------------
 zlemaColor = trend == 1 ? color.new(green, 70) : color.new(red, 70)
-m          = plot(zlema[1], title="Zero Lag Basis", linewidth=2, color=zlemaColor)  // Shifted by 1 bar
+m          = plot(zlema[1], title="Zero Lag Basis", linewidth=2, color=zlemaColor)  // Shifted by 1 bar for alignment
 upper      = plot(trend == -1 ? zlema[1] + volatility : na, style=plot.style_linebr, color=color.new(red, 90), title="Upper Deviation Band")
 lower      = plot(trend == 1 ? zlema[1] - volatility : na, style=plot.style_linebr, color=color.new(green, 90), title="Lower Deviation Band")
 fill(m, upper, color=color.new(red, 70))
 fill(m, lower, color=color.new(green, 70))
 
-//---- "Big" Trend Arrows (Green/Red) ----
-plotshape(ta.crossunder(trend, 0) ? zlema[1] + volatility : na, title="Bearish Trend (Big Arrow)", style=shape.labeldown, location=location.absolute, color=red, text="▼", textcolor=color.white, size=size.small)
-plotshape(ta.crossover(trend, 0) ? zlema[1] - volatility : na,  title="Bullish Trend (Big Arrow)", style=shape.labelup,   location=location.absolute, color=green, text="▲", textcolor=color.white, size=size.small)
+//---- "Big" Trend Arrows (for initial entries and exits) ----
+bigBearArrow = ta.crossunder(trend, 0) ? zlema[1] + volatility : na
+bigBullArrow = ta.crossover(trend, 0) ? zlema[1] - volatility : na
+
+plotshape(bigBearArrow, title="Bearish Trend (Big Arrow)", style=shape.labeldown, location=location.absolute, color=red, text="▼", textcolor=color.white, size=size.small)
+plotshape(bigBullArrow, title="Bullish Trend (Big Arrow)", style=shape.labelup,   location=location.absolute, color=green, text="▲", textcolor=color.white, size=size.small)
+
+//---- "Small" Entry Arrows (for adding to existing positions) ----
+smallBullCond = ta.crossover(close, zlema) and trend == 1 and trend[1] == 1
+smallBearCond = ta.crossunder(close, zlema) and trend == -1 and trend[1] == -1
+
+smallBullArrow = smallBullCond ? zlema[1] - volatility * 1.5 : na
+smallBearArrow = smallBearCond ? zlema[1] + volatility * 1.5 : na
+
+plotchar(smallBullArrow, title="Bullish Entry (Small Arrow)", char="▲", location=location.absolute, color=green, size=size.tiny)
+plotchar(smallBearArrow, title="Bearish Entry (Small Arrow)", char="▼", location=location.absolute, color=red, size=size.tiny)
 
 //-------------------------------------
-// Multi-Time Frame (MTF) Trend Calls (Fixed for Alignment)
+// Multi-Time Frame (MTF) Trend Calls (for reference)
 //-------------------------------------
 s1 = request.security(syminfo.tickerid, t1, trend[1], lookahead=barmerge.lookahead_off)
 s2 = request.security(syminfo.tickerid, t2, trend[1], lookahead=barmerge.lookahead_off)
@@ -67,18 +80,38 @@ s4 = request.security(syminfo.tickerid, t4, trend[1], lookahead=barmerge.lookahe
 s5 = request.security(syminfo.tickerid, t5, trend[1], lookahead=barmerge.lookahead_off)
 
 //-------------------------------------
-// STRATEGY LOGIC
-//  - Entry = Big Green Arrow => trend crosses above 0
-//  - Exit  = Big Red Arrow   => trend crosses below 0
+// Trading Logic
 //-------------------------------------
-crossOverTrend  = ta.crossover(trend, 0)
-crossUnderTrend = ta.crossunder(trend, 0)
+// Define entry/exit signals
+bigBullSignal   = inDateRange and ta.crossover(trend, 0)
+bigBearSignal   = inDateRange and ta.crossunder(trend, 0)
+smallBullSignal = inDateRange and (ta.crossover(close, zlema) and trend == 1 and trend[1] == 1)
+smallBearSignal = inDateRange and (ta.crossunder(close, zlema) and trend == -1 and trend[1] == -1)
 
-longEntryCond = inDateRange and crossOverTrend
-longExitCond  = inDateRange and crossUnderTrend
+// LONG Trading
+if bigBullSignal
+    // If currently short, exit the short positions.
+    if strategy.position_size < 0
+        strategy.close("Short_Big", comment="Exit Short on Big Bull Signal")
+        strategy.close("Short_Small", comment="Exit Short on Big Bull Signal")
+    // If no long position exists, enter with a Big Long order (10% equity).
+    if strategy.position_size <= 0
+        strategy.entry("Long_Big", strategy.long, qty=10, comment="Big Long Entry")
+        
+if smallBullSignal and strategy.position_size > 0
+    // Add to the long position with a Small Long order (5% equity).
+    strategy.entry("Long_Small", strategy.long, qty=5, comment="Small Long Entry")
 
-if longEntryCond
-    strategy.entry("Long", strategy.long)
-
-if longExitCond
-    strategy.close("Long")
+// SHORT Trading
+if bigBearSignal
+    // If currently long, exit the long positions.
+    if strategy.position_size > 0
+        strategy.close("Long_Big", comment="Exit Long on Big Bear Signal")
+        strategy.close("Long_Small", comment="Exit Long on Big Bear Signal")
+    // If no short position exists, enter with a Big Short order (10% equity).
+    if strategy.position_size >= 0
+        strategy.entry("Short_Big", strategy.short, qty=10, comment="Big Short Entry")
+        
+if smallBearSignal and strategy.position_size < 0
+    // Add to the short position with a Small Short order (5% equity).
+    strategy.entry("Short_Small", strategy.short, qty=5, comment="Small Short Entry")
