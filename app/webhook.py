@@ -4,6 +4,12 @@ import logging
 from logging import Logger
 from flask import Flask, request, jsonify
 from typing import Any
+import os
+import sys
+
+# Ensure the coinbase directory (one level up) is on the PYTHONPATH so we can import parse_alert.
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "coinbase")))
+import parse_alert  # Assumes parse_alert.py defines a callable function, e.g. parse_alert.parse_alert(...)
 
 # Configure logging
 logging.basicConfig(
@@ -49,6 +55,16 @@ def create_app() -> Flask:
             # Log raw and parsed data
             logger.info(f"Raw Data Received:\n{raw_data}")
             logger.info(f"Parsed Data:\n{parsed_data}")
+
+            # If the parsed data contains plain text, run the parse_alert script on it.
+            if "text" in parsed_data and isinstance(parsed_data["text"], str) and parsed_data["text"].strip():
+                try:
+                    alert_parsed = parse_alert.parse_alert(parsed_data["text"])
+                    parsed_data["alert_parsed"] = alert_parsed
+                    logger.info(f"Alert Parsed Data:\n{alert_parsed}")
+                except Exception as parse_exc:
+                    logger.error(f"Error running parse_alert: {parse_exc}")
+                    parsed_data["alert_parsed_error"] = str(parse_exc)
 
             # Respond with acknowledgment and parsed data
             return jsonify({"status": "received", "parsed_data": parsed_data}), 200
