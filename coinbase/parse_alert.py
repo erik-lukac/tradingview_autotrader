@@ -2,13 +2,13 @@
 """
 parse_alert.py
 
-utility to parse the text from tradingview into structured data, for automated trading
+Utility to parse alert text in the new format into structured data, for automated trading.
 
 Usage:
     ./parse_alert.py 'alert text'
 
 Example:
-    ./parse_alert.py "eGPT - Zero Lag Trend Signals (MTF) [AlgoAlpha] (10, 5, 70, 1.2, 5, 15, 60, 240, 1D): order buy @ 10 filled on MKRUSDT. New strategy position is 10"
+    ./parse_alert.py "BUY;SOLUSDC;1.5432"
 """
 
 import sys
@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 
 def process_ticker(ticker: str) -> str:
     """
-    Processes the ticker string by stripping a trailing 'USDT', 'USDTC', or 'USD'
-    (in that order) and then appending '-PERP-INTX' to the remaining symbol.
+    Processes the ticker string by stripping a trailing 'USDC', 'USDT', or 'USD'
+    and then appending '-PERP-INTX' to the remaining symbol.
 
     Args:
         ticker (str): The original ticker string (e.g., 'MKRUSDT').
@@ -32,10 +32,11 @@ def process_ticker(ticker: str) -> str:
     Returns:
         str: The processed ticker (e.g., 'MKR-PERP-INTX').
     """
-    suffixes = ["USDTC", "USDT", "USD"]
+    # IMPORTANT: Here we replaced "USDTC" with "USDC" 
+    suffixes = ["USDC", "USDT", "USD"]
     for suffix in suffixes:
         if ticker.endswith(suffix):
-            ticker = ticker[:-len(suffix)]
+            ticker = ticker[:-len(suffix)]  # Remove that suffix
             break
     processed_ticker = f"{ticker}-PERP-INTX"
     logger.info("Processed ticker: %s", processed_ticker)
@@ -43,48 +44,41 @@ def process_ticker(ticker: str) -> str:
 
 def parse_alert(alert_line: str) -> Optional[Dict[str, Union[str, int, float]]]:
     """
-    Parse a TradingView alert line to extract the action, contract, ticker, and position.
-
-    The expected alert format is:
-      ...: order <action> @ <contracts> filled on <ticker>. New strategy position is <position>
+    Parse an alert line in the format: ACTION;TICKER;QTY
+    (e.g. "BUY;SOLUSDC;1.5432" or "SELL;BTCUSDT;0.5")
 
     Args:
         alert_line (str): The alert text string.
 
     Returns:
-        Optional[Dict[str, Union[str, int, float]]]: A dictionary with keys 'action', 'contract', 'ticker',
-            and 'position' if the alert can be parsed; otherwise, None.
+        Optional[Dict[str, Union[str, int, float]]]: 
+            A dictionary with keys 'action', 'ticker', and 'position' 
+            if the alert can be parsed; otherwise, None.
     """
     # Regex breakdown:
-    # - r'order (\w+)'           : captures the action (buy or sell)
-    # - r' @ ([\d\.]+)'          : captures the number of contracts (allowing decimals)
-    # - r' filled on ([A-Z0-9]+)'  : captures the ticker (alphanumeric, typically uppercase)
-    # - r'\. New strategy position is (-?\d+)' : captures the new strategy position (allowing negatives)
+    # - ^(BUY|SELL)          : Matches the action (BUY or SELL)
+    # - ;\s*([A-Z0-9]+)      : Matches the ticker (alphanumeric, uppercase)
+    # - ;\s*([\d\.]+)$       : Matches the quantity (position size, decimals ok)
     pattern = re.compile(
-        r'order (\w+) @ ([\d\.]+) filled on ([A-Z0-9]+)\. New strategy position is (-?\d+)',
+        r'^(BUY|SELL);\s*([A-Z0-9]+);\s*([\d\.]+)$',
         re.IGNORECASE
     )
-
     match = pattern.search(alert_line)
     if match:
-        action, contract, ticker, position = match.groups()
+        action, ticker, qty = match.groups()
 
         try:
-            contract_value: Union[int, float] = float(contract) if '.' in contract else int(contract)
+            # Convert qty to float if it has a dot, else to int
+            position_value: Union[int, float] = float(qty) if '.' in qty else int(qty)
         except ValueError:
-            contract_value = contract  # fallback to string if conversion fails
+            logger.error("Quantity could not be parsed as number: %s", qty)
+            return None
 
-        try:
-            position_value: int = int(position)
-        except ValueError:
-            position_value = position  # fallback to string if conversion fails
-
-        # Process the ticker further as per requirement.
+        # Process the ticker to remove stable-coin suffix and append -PERP-INTX
         processed_ticker: str = process_ticker(ticker)
 
         result: Dict[str, Union[str, int, float]] = {
             'action': action.lower(),
-            'contract': contract_value,
             'ticker': processed_ticker,
             'position': position_value
         }
@@ -102,9 +96,11 @@ def main() -> None:
     alert_text: str = sys.argv[1]
     parsed_data: Optional[Dict[str, Union[str, int, float]]] = parse_alert(alert_text)
     if parsed_data is not None:
-        # Output the result as JSON on the console.
+        # Output the result as JSON on stdout
         print(json.dumps(parsed_data))
+        sys.exit(0)
     else:
+        # Parsing failed; exit nonzero so the webhook script sees the error
         sys.exit(1)
 
 if __name__ == '__main__':

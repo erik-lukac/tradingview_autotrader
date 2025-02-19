@@ -3,10 +3,10 @@ services:
     container_name: webhook_listener
     build:
       context: .
-    ports: []
-      # "80:5002" # Uncomment if you want to map host port 80 to container port 5002
+    ports:  #[]
+      - "5002:5002" # accesible port to the Host machine
     expose:
-      - "5002"     # Internal port only (accessible to other containers)
+      - "5002"     # Internal port only (accessible to other containers within docker)
     restart: unless-stopped
 
   nginx:

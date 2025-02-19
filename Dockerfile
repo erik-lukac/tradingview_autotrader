@@ -6,6 +6,12 @@ WORKDIR /app
 
 # Copy application files to the container
 COPY app/ /app
+COPY coinbase/ /coinbase/
+
+
+# Copy requirements and install them
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Install Flask
 RUN pip install flask

@@ -3,62 +3,9 @@
 order.py
 
 Executes a single order via Coinbase API. User can choose order type market, limit, stop limit, bracket.
-Output is logged and printed to console
+Output is logged and printed to console.
 
-EXAMPLES:
-
-1) Provide side, product, and amount as positional arguments:
-   python order.py BUY BTC-USD 10
-
-2) (Default) Market IOC order using named flags:
-   python order.py --side BUY --product BTC-USD --amount 0.01
-
-3) Market IOC explicitly:
-   python order.py --side BUY --product BTC-USD --amount 0.01 --option market_ioc
-
-4) Limit IOC (with limit price):
-   python order.py --side SELL --product ETH-USD --amount 0.02 --option limit_ioc --limit-price 2000
-
-5) Limit GTC (Good 'Til Canceled):
-   python order.py --side BUY --product BTC-USD --amount 0.01 --option limit_gtc --limit-price 18000
-
-6) Limit GTD (Good 'Til Date) with expiration time:
-   python order.py --side SELL --product ETH-USD --amount 0.05 --option limit_gtd --limit-price 1900 --end-time 2025-05-01T00:00:00Z
-
-7) Limit FOK (Fill-Or-Kill):
-   python order.py --side SELL --product BTC-USD --amount 0.02 --option limit_fok --limit-price 18500
-
-8) Stop-Limit GTC:
-   python order.py --side BUY --product BTC-USD --amount 0.01 --option stop_limit_gtc --limit-price 26000 --stop-price 24500 --stop-direction STOP_DIRECTION_STOP_UP
-
-9) Stop-Limit GTD (with end time):
-   python order.py --side SELL --product ETH-USD --amount 0.05 --option stop_limit_gtd --limit-price 1700 --stop-price 1800 --stop-direction STOP_DIRECTION_STOP_DOWN --end-time 2025-06-10T12:00:00Z
-
-10) Bracket GTC:
-    python order.py --side BUY --product BTC-USD --amount 0.04 --option bracket_gtc --limit-price 31000 --stop-trigger-price 30000
-
-11) Bracket GTD (expiring at a date/time):
-    python order.py --side SELL --product ETH-USD --amount 0.03 --option bracket_gtd --limit-price 40000 --stop-trigger-price 39500 --end-time 2025-07-01T12:00:00Z
-
-DESCRIPTION:
-  This script connects to Coinbase Advanced Trade via RESTClient, allowing users
-  to create different order types. It supports both positional and named
-  arguments for side, product, and amount.
-
-  If --option is not specified, it defaults to a 'market' IOC order.
-
-  Order records are written to 'order_id.txt' with status logged. If an
-  order fails, the script exits with a non-zero return code.
-
-  Now, it also prints a JSON object to stdout:
-    {
-      "local_order_id": <int>,
-      "coinbase_order_id": <str or null>,
-      "average_filled_price": <str or null>,
-      "status": <"executed" or "failed_<reason>">,
-      "timestamp": <ISO8601 datetime string>,
-      "exit_code": <0 or 1>
-    }
+...
 """
 
 import argparse
@@ -77,7 +24,10 @@ from typing import Tuple, Dict, Any, Optional
 # --------------------------------------------------
 ENABLE_LOGGING = True
 
-API_KEY_FILE = "perpetuals_trade_cdp_api_key.json"
+# If --key-file is not supplied, we will look at environment variable "API_KEY_FILE".
+# If that is also not set, default to "perpetuals_trade_cdp_api_key.json".
+DEFAULT_API_KEY_FILE = "perpetuals_trade_cdp_api_key.json"
+
 ORDER_ID_FILE = "order_id.txt"
 
 LEVERAGE = ""
@@ -149,6 +99,7 @@ def parse_args() -> Tuple[argparse.ArgumentParser, argparse.Namespace]:
         description="Submit an order to Coinbase Advanced. Defaults to MARKET IOC."
     )
 
+    # Positional arguments
     parser.add_argument("pos_side", nargs="?", default=None,
                         help="Side (BUY or SELL), if used positionally.")
     parser.add_argument("pos_product", nargs="?", default=None,
@@ -161,7 +112,6 @@ def parse_args() -> Tuple[argparse.ArgumentParser, argparse.Namespace]:
     parser.add_argument("--product", help="Instrument code, e.g. BTC-USD.")
     parser.add_argument("--amount", help="Base size (quantity) to trade.")
 
-    # Extended arguments for order types
     parser.add_argument(
         "--option",
         default="market",
@@ -210,6 +160,12 @@ def parse_args() -> Tuple[argparse.ArgumentParser, argparse.Namespace]:
     parser.add_argument("--stop-trigger-price", default=None,
                         help="For bracket orders.")
 
+    # New argument for specifying the API key file location
+    parser.add_argument("--key-file", default=None,
+                        help="Path to the Coinbase API key file (JSON). "
+                             "If not provided, environment variable 'API_KEY_FILE' "
+                             "or default 'perpetuals_trade_cdp_api_key.json' will be used.")
+
     args = parser.parse_args()
 
     # Apply convenience flags if used
@@ -231,7 +187,21 @@ def consolidate_args(args: argparse.Namespace, parser: argparse.ArgumentParser) 
     """
     Resolve side, product, and amount from positional or named arguments.
     Exits if any are missing.
+
+    This version supports a composite positional argument, for example:
+      python order.py "BUY GIGA-PERP-INTX 900"
     """
+    # If only one positional argument is provided (and the others are None),
+    # try splitting it into three tokens.
+    if args.pos_side is not None and args.pos_product is None and args.pos_amount is None:
+        tokens = args.pos_side.split()
+        if len(tokens) == 3:
+            args.pos_side, args.pos_product, args.pos_amount = tokens
+        else:
+            logging.error("Expected a composite positional argument with exactly 3 space-separated values (side, product, amount).")
+            parser.print_help()
+            sys.exit(1)
+
     final_side = args.side if args.side else args.pos_side
     final_product = args.product if args.product else args.pos_product
     final_amount = args.amount if args.amount else args.pos_amount
@@ -415,11 +385,19 @@ def place_order(side: str, product: str, amount: str, args: argparse.Namespace) 
     logging.info(f"Order configuration: {order_config}")
     logging.info(f"Generated Client Order ID: {local_id}")
 
+    # Determine which key file to use
+    api_key_file = (
+        args.key_file  # --key-file on the command line
+        or os.environ.get("API_KEY_FILE")  # environment variable
+        or DEFAULT_API_KEY_FILE  # final fallback
+    )
+
     # Create REST client
     try:
-        client = RESTClient(key_file=API_KEY_FILE)
+        client = RESTClient(key_file=api_key_file)
     except FileNotFoundError:
-        logging.error(f"API key file '{API_KEY_FILE}' not found.")
+        logging.error(f"API key file '{api_key_file}' not found. "
+                      "Please specify via --key-file or set API_KEY_FILE env var.")
         sys.exit(1)
 
     optional_params: Dict[str, str] = {}
@@ -488,7 +466,6 @@ def place_order(side: str, product: str, amount: str, args: argparse.Namespace) 
     )
 
     # Build final JSON output
-    # (if coinbase_order_id or avg_fill_price_str is None, we'll store null in JSON)
     json_output = {
         "local_order_id": local_id,
         "coinbase_order_id": coinbase_order_id,
@@ -498,7 +475,6 @@ def place_order(side: str, product: str, amount: str, args: argparse.Namespace) 
         "exit_code": exit_code
     }
 
-    # Print the JSON
     print(json.dumps(json_output))
 
     # Finally, exit with the correct code
