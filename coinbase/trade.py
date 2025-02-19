@@ -2,6 +2,9 @@
 """
 trade.py
 
+Automates a common trading pattern (entry + stop-loss + take profit) by placing orders in sequence
+
+
 This script places three consecutive orders:
   1. An entry market order.
   2. A stop loss order.

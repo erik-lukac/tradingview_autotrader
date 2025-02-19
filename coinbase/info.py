@@ -2,9 +2,7 @@
 """
 info.py
 
-Fetches the latest orders, positions, and perpetuals information from Coinbase Advanced Trading,
-displaying them in a custom tabular format. Demonstrates various Python best practices and
-language features (PEP 484, 557, 435, etc.).
+read only script that fetches the latest orders, positions, and perpetuals information from Coinbase Advanced Trading.
 """
 
 import argparse

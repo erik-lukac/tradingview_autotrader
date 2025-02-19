@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+"""
+order_info.py
+
+lightweight query tool to retrieve information abount single order, providing order ID
+
+"""
+
 
 import argparse
 import logging

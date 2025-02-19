@@ -2,6 +2,9 @@
 """
 order.py
 
+Executes a single order via Coinbase API. User can choose order type market, limit, stop limit, bracket.
+Output is logged and printed to console
+
 EXAMPLES:
 
 1) Provide side, product, and amount as positional arguments:

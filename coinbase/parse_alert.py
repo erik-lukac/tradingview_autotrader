@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 """
+parse_alert.py
+
+utility to parse the text from tradingview into structured data, for automated trading
+
 Usage:
     ./parse_alert.py 'alert text'
 
