@@ -40,6 +40,7 @@ class Order:
     created_time: str
     average_filled_price: str
     order_type: str
+    order_id: str  # Add this field
 
 
 @dataclass
@@ -113,6 +114,7 @@ async def fetch_orders_and_positions(client: RESTClient) -> Tuple[List[Order], L
         created_time = odict.get("created_time", "N/A")
         avg_price = odict.get("average_filled_price", "N/A")
         order_type = odict.get("order_type", "N/A")
+        order_id = odict.get("order_id", "N/A")
 
         base_size = "N/A"
         order_config = odict.get("order_configuration", {})
@@ -128,6 +130,7 @@ async def fetch_orders_and_positions(client: RESTClient) -> Tuple[List[Order], L
                 created_time=created_time,
                 average_filled_price=avg_price,
                 order_type=order_type,
+                order_id=odict.get("order_id", "N/A"),  # Add this line
             )
         )
 
@@ -194,7 +197,7 @@ async def main_async(num_records: int) -> None:
     # Process and display orders
     if orders:
         sliced_orders = orders[:num_records]
-        headers_orders = ["Product", "Side", "Size", "Price", "Type", "Time"]
+        headers_orders = ["Product", "Side", "Size", "Price", "Type", "Time", "Order ID"]  # Add Order ID
         rows_orders = []
         for o in sliced_orders:
             try:
@@ -209,7 +212,8 @@ async def main_async(num_records: int) -> None:
                 o.base_size,
                 o.average_filled_price,
                 o.order_type,
-                formatted_time
+                formatted_time,
+                o.order_id  # Add this line
             ])
 
         print_table(headers_orders, rows_orders)

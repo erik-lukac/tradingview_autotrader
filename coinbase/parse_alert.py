@@ -7,8 +7,21 @@ Utility to parse alert text in the new format into structured data, for automate
 Usage:
     ./parse_alert.py 'alert text'
 
-Example:
+Format:
+    ACTION;TICKER;QUANTITY[;STOP_LOSS[;TAKE_PROFIT]]
+
+Examples:
+    # Basic format with standard ticker
     ./parse_alert.py "BUY;SOLUSDC;1.5432"
+    
+    # Basic format with processed ticker
+    ./parse_alert.py "BUY;SOL-PERP-INTX;1.5432"
+    
+    # With stop loss (3 decimal precision)
+    ./parse_alert.py "SELL;BTCUSDT;0.5;19.123"
+    
+    # With both stop loss and take profit
+    ./parse_alert.py "BUY;SOLUSDC;1.5432;20.123;25.678"
 """
 
 import sys
@@ -23,69 +36,78 @@ logger = logging.getLogger(__name__)
 
 def process_ticker(ticker: str) -> str:
     """
-    Processes the ticker string by stripping a trailing 'USDC', 'USDT', or 'USD'
-    and then appending '-PERP-INTX' to the remaining symbol.
+    Processes the ticker string, accepting both formats:
+    - Standard format (e.g., 'SOLUSDC')
+    - Already processed format (e.g., 'SOL-PERP-INTX')
 
     Args:
-        ticker (str): The original ticker string (e.g., 'MKRUSDT').
+        ticker (str): The ticker string in either format.
 
     Returns:
-        str: The processed ticker (e.g., 'MKR-PERP-INTX').
+        str: The processed ticker with -PERP-INTX suffix.
     """
-    # IMPORTANT: Here we replaced "USDTC" with "USDC" 
+    # Check if already in correct format
+    if ticker.endswith('-PERP-INTX'):
+        return ticker
+
+    # Process standard format
     suffixes = ["USDC", "USDT", "USD"]
     for suffix in suffixes:
         if ticker.endswith(suffix):
-            ticker = ticker[:-len(suffix)]  # Remove that suffix
+            ticker = ticker[:-len(suffix)]
             break
-    processed_ticker = f"{ticker}-PERP-INTX"
-    logger.info("Processed ticker: %s", processed_ticker)
-    return processed_ticker
+    return f"{ticker}-PERP-INTX"
 
 def parse_alert(alert_line: str) -> Optional[Dict[str, Union[str, int, float]]]:
     """
-    Parse an alert line in the format: ACTION;TICKER;QTY
-    (e.g. "BUY;SOLUSDC;1.5432" or "SELL;BTCUSDT;0.5")
-
-    Args:
-        alert_line (str): The alert text string.
-
-    Returns:
-        Optional[Dict[str, Union[str, int, float]]]: 
-            A dictionary with keys 'action', 'ticker', and 'position' 
-            if the alert can be parsed; otherwise, None.
+    Parse an alert line in the format: ACTION;TICKER;QTY[;SL[;TP]]
+    Examples:
+    - "BUY;SOLUSDC;1.5432"
+    - "BUY;SOLUSDC;1"
+    - "BUY;SOL-PERP-INTX;1.5432;23.456"
+    - "BUY;SOL-PERP-INTX;1;23;25"
     """
-    # Regex breakdown:
-    # - ^(BUY|SELL)          : Matches the action (BUY or SELL)
-    # - ;\s*([A-Z0-9]+)      : Matches the ticker (alphanumeric, uppercase)
-    # - ;\s*([\d\.]+)$       : Matches the quantity (position size, decimals ok)
+    # Updated regex to handle both integers and decimals
     pattern = re.compile(
-        r'^(BUY|SELL);\s*([A-Z0-9]+);\s*([\d\.]+)$',
+        r'^(BUY|SELL);\s*([A-Z0-9-]+);\s*(\d+\.?\d*|\.\d+)(?:;\s*(\d+\.?\d*|\.\d+))?(?:;\s*(\d+\.?\d*|\.\d+))?$',
         re.IGNORECASE
     )
+    
     match = pattern.search(alert_line)
-    if match:
-        action, ticker, qty = match.groups()
+    if not match:
+        logger.error("Failed to parse the alert line: %s", alert_line)
+        return None
 
-        try:
-            # Convert qty to float if it has a dot, else to int
-            position_value: Union[int, float] = float(qty) if '.' in qty else int(qty)
-        except ValueError:
-            logger.error("Quantity could not be parsed as number: %s", qty)
-            return None
+    action, ticker, qty, sl, tp = match.groups()
 
-        # Process the ticker to remove stable-coin suffix and append -PERP-INTX
-        processed_ticker: str = process_ticker(ticker)
-
+    try:
+        # Parse position value
+        position_value = float(qty)
+        
         result: Dict[str, Union[str, int, float]] = {
             'action': action.lower(),
-            'ticker': processed_ticker,
+            'ticker': process_ticker(ticker),
             'position': position_value
         }
+
+        # Add stop loss if provided
+        if sl is not None:
+            sl_value = float(sl)
+            result['stop_loss'] = round(sl_value, 3)
+
+        # Add take profit if provided
+        if tp is not None:
+            if sl is None:
+                logger.error("Take profit provided without stop loss")
+                return None
+            tp_value = float(tp)
+            result['take_profit'] = round(tp_value, 3)
+
         logger.info("Parsed result: %s", result)
         return result
-    else:
-        logger.error("Failed to parse the alert line: %s", alert_line)
+
+    except ValueError as e:
+        logger.error("Error parsing numeric values: %s", str(e))
         return None
 
 def main() -> None:
