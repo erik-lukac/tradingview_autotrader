@@ -34,9 +34,12 @@ A containerized solution to receive TradingView webhooks and automate trades on 
 
 The **TradingView Auto-Trader** listens for [TradingView webhooks](https://www.tradingview.com/support/solutions/43000529348-about-webhooks/) containing buy/sell signals. Once a signal is received, it can:
 
-1. Parse the alert message (e.g., `BUY;SOLUSDC;1.5432`)  
-2. Place an order or sequence of orders (e.g., market entry + stop-loss + take-profit)  
-3. Log and track order statuses  
+1. Parse the alert message in multiple formats:
+   - Basic: `BUY;SOLUSDC;1.5432`
+   - With Stop Loss: `BUY;SOLUSDC;1.5432;20.123`
+   - Complete: `BUY;SOLUSDC;1.5432;20.123;25.678` (includes Take Profit)
+2. Place an order or sequence of orders (e.g., market entry + stop-loss + take-profit)
+3. Log and track order statuses
 
 This setup provides a straightforward, **hands-free** approach to execute trades automatically on Coinbase Advanced Trading based on TradingView alerts.
 
@@ -48,6 +51,10 @@ This setup provides a straightforward, **hands-free** approach to execute trades
 - **Auto-trading**: Pass TradingView alerts to Python scripts that place orders on Coinbase.
 - **Versatile Order Types**: Market, limit, stop-limit, bracket, etc.
 - **Multi-step Trades**: Entry, stop-loss, and take-profit in one shot.
+- **Flexible Alert Format**: 
+  - Supports both standard (SOLUSDC) and processed (SOL-PERP-INTX) ticker formats
+  - Optional stop-loss and take-profit parameters
+  - 3-decimal precision for price levels
 - **Easy Logging**: Order details stored in a simple CSV file (`order_id.txt`).
 
 ---
@@ -57,18 +64,36 @@ This setup provides a straightforward, **hands-free** approach to execute trades
 ```bash
 .
 ├── Dockerfile                # Docker build (used by the 'webhook' service)
-├── docker-compose.yml        # Defines 'webhook_listener' and 'nginx_proxy'
+├── docker-compose.yml        # Defines services configuration
 ├── requirements.txt          # Python dependencies
-├── nginx/
-│   ├── nginx.conf            # Nginx reverse-proxy config
-│   └── logs/                 # Nginx logs (mapped into container)
-├── app/                      # Flask application (Webhook listener, etc.)
-│   └── ...
-├── coinbase/                 # Contains all Coinbase-related Python scripts
-│   ├── info.py
-│   ├── order.py
-│   ├── order_info.py
-│   ├── parse_alert.py
-│   ├── trade.py
-│   └── ...
-└── README.md                 # This file
+├── app/                      # Flask application directory
+│   └── webhook.py           # Webhook listener implementation
+├── nginx/                    # Nginx configuration
+│   ├── nginx.conf           # Reverse-proxy configuration
+│   └── logs/                # Nginx log files
+├── coinbase/                 # Coinbase trading scripts
+│   ├── coins.txt            # Supported coins list
+│   ├── info.py             # Get market information
+│   ├── order.py            # Place orders
+│   ├── order_id.txt        # Order tracking log
+│   ├── order_info.py       # Query order status
+│   ├── parse_alert.py      # Parse TradingView alerts
+│   ├── perpetuals.txt      # Supported perpetual contracts
+│   ├── trade.py            # Trading logic implementation
+│   └── perpetuals_trade_cdp_api_key.json  # API credentials
+├── other/                   # Additional resources
+│   ├── coinbase_order_instructions.txt
+│   ├── example_close_order.txt
+│   ├── example_list_orders.txt
+│   ├── example_order.txt
+│   ├── example_positions.txt
+│   ├── python_guideline.txt
+│   └── webhook_example_data_RSI.txt
+└── strategies/              # Trading strategies
+    ├── guideline.txt
+    ├── momentum.txt
+    ├── momentum_bias.txt
+    └── zerolag.txt
+```
+
+---

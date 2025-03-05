@@ -20,17 +20,17 @@ import sys
 import subprocess
 from logging import Logger
 from flask import Flask, request, jsonify
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 # -----------------------
 # Constants and Path Settings
 # -----------------------
 
-BASE_DIR = os.path.dirname(__file__)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 COINBASE_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "coinbase"))
 PARSE_ALERT_SCRIPT_PATH = os.path.join(COINBASE_DIR, "parse_alert.py")
 ORDER_SCRIPT_PATH = os.path.join(COINBASE_DIR, "order.py")
-PYTHON_COMMAND = "python"  # Change to "python3" if needed.
+PYTHON_COMMAND = sys.executable  # Use the current Python interpreter
 FLASK_HOST = "0.0.0.0"
 FLASK_PORT = 5002
 
@@ -99,35 +99,71 @@ def execute_parse_alert(alert_text: str) -> Dict[str, Any]:
 
 def execute_order(alert: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Execute the external order.py script using the parsed alert data.
-    The order parameters are passed as a single argument string.
-
-    Returns:
-        dict: The result of the order execution (stdout or error message).
+    Execute orders as:
+    - Main order: Market IOC
+    - Stop-loss: Stop-limit GTC with trigger 0.5% away
+    - Take-profit: Market IOC
     """
     try:
         action = alert["action"].upper()
         ticker = alert["ticker"]
         position = str(alert["position"])
-        logger.info("Preparing to execute order: action=%s, ticker=%s, position=%s", action, ticker, position)
+        results = {}
 
-        # Build one string argument, e.g. "BUY GIGA-PERP-INTX 900"
-        single_arg = f"{action} {ticker} {position}"
-
-        # Pass everything as a single argument.
-        cmd = [PYTHON_COMMAND, ORDER_SCRIPT_PATH, single_arg]
-        logger.info("Executing order command: %s", " ".join(cmd))
-        
-        # Set cwd to COINBASE_DIR so that relative paths inside order.py work correctly.
+        # 1. Main Market Order (IOC)
+        logger.info("Executing main market order: %s %s %s", action, ticker, position)
+        cmd = [
+            PYTHON_COMMAND,
+            ORDER_SCRIPT_PATH,
+            f"{action} {ticker} {position}",
+            "--option", "market_ioc"
+        ]
         result = subprocess.run(cmd, capture_output=True, text=True, check=True, cwd=COINBASE_DIR)
-        logger.info("Order executed successfully. Output:\n%s", result.stdout)
-        return {"stdout": result.stdout}
+        results["main_order"] = {"stdout": result.stdout}
+        logger.info("Main order executed: %s", result.stdout)
+
+        # 2. Stop Loss Order (if provided)
+        if "stop_loss" in alert:
+            sl_action = "SELL" if action == "BUY" else "BUY"
+            sl_price = float(alert["stop_loss"])
+            # Calculate trigger price 0.5% away
+            sl_trigger = sl_price * (0.995 if action == "BUY" else 1.005)
+            
+            cmd = [
+                PYTHON_COMMAND,
+                ORDER_SCRIPT_PATH,
+                f"{sl_action} {ticker} {position}",
+                "--option", "stop_limit_gtc",
+                "--stop-price", f"{sl_trigger:.3f}",
+                "--limit-price", f"{sl_price:.3f}"
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True, cwd=COINBASE_DIR)
+            results["stop_loss"] = {"stdout": result.stdout}
+            logger.info("Stop-loss order executed: %s", result.stdout)
+
+        # 3. Take Profit Order (if provided)
+        if "take_profit" in alert:
+            tp_action = "SELL" if action == "BUY" else "BUY"
+            tp_price = str(alert["take_profit"])
+            
+            cmd = [
+                PYTHON_COMMAND,
+                ORDER_SCRIPT_PATH,
+                f"{tp_action} {ticker} {position}",
+                "--option", "market_ioc"
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True, cwd=COINBASE_DIR)
+            results["take_profit"] = {"stdout": result.stdout}
+            logger.info("Take-profit order executed: %s", result.stdout)
+
+        return results
+
     except subprocess.CalledProcessError as e:
         logger.error("Order execution failed: %s", e)
-        return {"error": str(e)}
+        return {"error": f"Order execution failed: {str(e)}"}
     except Exception as e:
-        logger.error("Unexpected error executing order: %s", e)
-        return {"error": str(e)}
+        logger.error("Unexpected error: %s", e)
+        return {"error": f"Unexpected error: {str(e)}"}
 
 
 def process_webhook() -> Dict[str, Any]:
@@ -184,6 +220,36 @@ def parse_tradingview_format(raw_data: str) -> Dict[str, Any]:
     except Exception as exc:
         logger.warning("Failed to parse TradingView format: %s", exc)
         return {"error": "Invalid TradingView format"}
+
+
+def parse_tradingview_alert(alert_text: str) -> Optional[Dict[str, Any]]:
+    """Parse the alert text using the external parse_alert.py script."""
+    try:
+        # Use absolute path for both executable and script
+        cmd = [
+            PYTHON_COMMAND,
+            os.path.abspath(PARSE_ALERT_SCRIPT_PATH),  # Use absolute path
+            alert_text
+        ]
+        
+        logger.info(f"Executing parse command from {COINBASE_DIR}: {' '.join(cmd)}")
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+            cwd=COINBASE_DIR
+        )
+        
+        return json.loads(result.stdout)
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Parse alert failed. Command: {' '.join(cmd)}")
+        logger.error(f"Working directory: {COINBASE_DIR}")
+        logger.error(f"STDERR: {e.stderr}")
+        return {"error": str(e)}
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse JSON output: {e}")
+        return {"error": f"JSON parse error: {str(e)}"}
 
 
 # -----------------------
