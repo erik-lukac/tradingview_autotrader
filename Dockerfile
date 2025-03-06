@@ -6,7 +6,7 @@ WORKDIR /app
 
 # Copy application files to the container
 COPY app/ /app
-COPY coinbase/ /coinbase/
+# COPY coinbase/ /coinbase/ ## not needed because the files need to be mounted instead of copied
 
 
 # Copy requirements and install them

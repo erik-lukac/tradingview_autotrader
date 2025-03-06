@@ -3,6 +3,8 @@ services:
     container_name: webhook_listener
     build:
       context: .
+    volumes:
+      - ./coinbase:/coinbase  # volume mount for scripts and id file
     ports:  #[]
       - "5002:5002" # accesible port to the Host machine
     expose:

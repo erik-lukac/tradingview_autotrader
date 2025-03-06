@@ -239,7 +239,7 @@ async def main_async(num_records: int) -> None:
     # Process and display orders
     if orders:
         sliced_orders = orders[:num_records]
-        headers_orders = ["Product", "Side", "Size", "Price", "Type", "Time", "Order ID", "Internal ID"]  # Added Internal ID
+        headers_orders = ["Product", "Side", "Size", "Price", "Type", "Time", "Order ID", "Client Order ID"]  # Added Internal ID
         rows_orders = []
         for o in sliced_orders:
             try:
