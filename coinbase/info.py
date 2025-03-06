@@ -3,6 +3,7 @@
 info.py
 
 read only script that fetches the latest orders, positions, and perpetuals information from Coinbase Advanced Trading.
+Also displays internal order IDs from order_id.txt.
 """
 
 import argparse
@@ -12,7 +13,7 @@ import logging
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import List, Tuple
+from typing import Dict, List, Tuple, Optional
 
 from coinbase.rest import RESTClient
 
@@ -40,7 +41,8 @@ class Order:
     created_time: str
     average_filled_price: str
     order_type: str
-    order_id: str  # Add this field
+    order_id: str
+    internal_id: Optional[str] = None  # Added field for internal order ID
 
 
 @dataclass
@@ -53,6 +55,38 @@ class Position:
     size: str
     created_time: str
     entry_price: str
+
+
+# -------------------------------------------------------------------
+# Order ID Mapping Functions
+# -------------------------------------------------------------------
+def load_order_id_mapping(filepath: str = "order_id.txt") -> Dict[str, str]:
+    """
+    Load the mapping between Coinbase order IDs and internal order IDs from the order_id.txt file.
+    
+    :param filepath: Path to the order_id.txt file
+    :return: Dictionary mapping Coinbase order IDs to internal order IDs
+    """
+    order_map = {}
+    try:
+        with open(filepath, 'r') as f:
+            for line in f:
+                parts = line.strip().split(',')
+                if len(parts) >= 8:  # Ensure the line has enough parts
+                    internal_id = parts[0]
+                    coinbase_id = parts[7]  # The Coinbase order ID is the 8th element (index 7)
+                    order_map[coinbase_id] = internal_id
+    except FileNotFoundError:
+        logging.warning(f"Order ID file '{filepath}' not found. Internal IDs will not be displayed.")
+    except Exception as e:
+        logging.error(f"Error reading order ID file: {e}")
+    
+    if not order_map:
+        logging.warning("No order ID mappings were found in the file. Check the file format and content.")
+    else:
+        logging.info(f"Loaded {len(order_map)} order ID mappings")
+    
+    return order_map
 
 
 # -------------------------------------------------------------------
@@ -91,11 +125,12 @@ def print_table(headers: List[str], rows: List[List[str]]) -> None:
 # -------------------------------------------------------------------
 # Asynchronous Helper Functions
 # -------------------------------------------------------------------
-async def fetch_orders_and_positions(client: RESTClient) -> Tuple[List[Order], List[Position]]:
+async def fetch_orders_and_positions(client: RESTClient, order_id_map: Dict[str, str]) -> Tuple[List[Order], List[Position]]:
     """
     Asynchronously fetch orders and positions from the Coinbase client.
 
     :param client: The RESTClient for interacting with the Coinbase API.
+    :param order_id_map: Mapping of Coinbase order IDs to internal order IDs.
     :return: A tuple containing a list of Orders and a list of Positions.
     """
     loop = asyncio.get_running_loop()
@@ -115,6 +150,9 @@ async def fetch_orders_and_positions(client: RESTClient) -> Tuple[List[Order], L
         avg_price = odict.get("average_filled_price", "N/A")
         order_type = odict.get("order_type", "N/A")
         order_id = odict.get("order_id", "N/A")
+        
+        # Look up internal ID from the mapping
+        internal_id = order_id_map.get(order_id, "N/A")
 
         base_size = "N/A"
         order_config = odict.get("order_configuration", {})
@@ -130,7 +168,8 @@ async def fetch_orders_and_positions(client: RESTClient) -> Tuple[List[Order], L
                 created_time=created_time,
                 average_filled_price=avg_price,
                 order_type=order_type,
-                order_id=odict.get("order_id", "N/A"),  # Add this line
+                order_id=order_id,
+                internal_id=internal_id
             )
         )
 
@@ -181,6 +220,9 @@ async def main_async(num_records: int) -> None:
     :param num_records: Number of transactions to show for each category.
     """
     key_file_path = Path("perpetuals_trade_cdp_api_key.json")
+    
+    # Load order ID mapping
+    order_id_map = load_order_id_mapping()
 
     try:
         client = RESTClient(key_file=str(key_file_path))
@@ -189,7 +231,7 @@ async def main_async(num_records: int) -> None:
         return
 
     try:
-        orders, positions = await fetch_orders_and_positions(client)
+        orders, positions = await fetch_orders_and_positions(client, order_id_map)
     except Exception as e:
         logging.error(f"Error fetching orders/positions: {e}")
         return
@@ -197,7 +239,7 @@ async def main_async(num_records: int) -> None:
     # Process and display orders
     if orders:
         sliced_orders = orders[:num_records]
-        headers_orders = ["Product", "Side", "Size", "Price", "Type", "Time", "Order ID"]  # Add Order ID
+        headers_orders = ["Product", "Side", "Size", "Price", "Type", "Time", "Order ID", "Internal ID"]  # Added Internal ID
         rows_orders = []
         for o in sliced_orders:
             try:
@@ -213,7 +255,8 @@ async def main_async(num_records: int) -> None:
                 o.average_filled_price,
                 o.order_type,
                 formatted_time,
-                o.order_id  # Add this line
+                o.order_id,
+                o.internal_id  # Added internal ID to the output
             ])
 
         print_table(headers_orders, rows_orders)
@@ -265,7 +308,7 @@ def main() -> None:
     Entry point for the script, handles CLI arguments and sets up logging.
     """
     logging.basicConfig(
-        level=logging.ERROR,
+        level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(message)s"
     )
 

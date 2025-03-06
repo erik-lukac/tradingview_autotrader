@@ -1,3 +1,5 @@
+python3 -c "from coinbase.rest import RESTClient; client = RESTClient(key_file='perpetuals_trade_cdp_api_key.json'); print(client.create_order('xx8', 'SOL-PERP-INTX', 'SELL', {'market_market_ioc': {'base_size': '0.2'}}))"
+
 >>> from coinbase.rest import RESTClient
 >>> client = RESTClient(key_file="perpetuals_trade_cdp_api_key.json")
 >>> client.get_api_key_permissions()
